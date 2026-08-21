@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Log in - TukuruMukuru</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <div class="avatar large">🐾</div>
+    <h1>TukuruMukuru</h1>
+    <p class="subtitle">Log in to chat</p>
+    <form id="login-form">
+      <input id="username" type="text" placeholder="Username" autocomplete="username" required />
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" required />
+      <button type="submit">Log in</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </div>
+  <script src="/login-client.js"></script>
+</body>
+</html>

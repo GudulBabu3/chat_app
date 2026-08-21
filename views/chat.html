@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TukuruMukuru</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="chat-screen">
+    <header>
+      <div class="avatar">🐾</div>
+      <div class="header-text">
+        <h1 id="pet-name">TukuruMukuru</h1>
+        <span id="pet-status">connecting...</span>
+      </div>
+      <button id="logout-btn" title="Log out">Log out</button>
+    </header>
+    <div id="messages"></div>
+    <div id="typing-indicator" class="hidden">TukuruMukuru is typing<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+    <form id="message-form">
+      <input id="message-input" type="text" placeholder="Say something..." autocomplete="off" maxlength="2000" />
+      <button type="submit">Send</button>
+    </form>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
