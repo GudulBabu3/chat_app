@@ -19,6 +19,18 @@ const MAX_MESSAGE_LENGTH = 2000;
 const HISTORY_LIMIT = 50;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
+// Gap before TukuruMukuru's next unprompted check-in, reset every time the
+// user sends a real message. Keep these in sync with the matching constants
+// in nudge-scheduler.js (that script is what actually sends the check-ins;
+// this file only needs to know how far out to push the next one).
+const NUDGE_MIN_HOURS = 3;
+const NUDGE_MAX_HOURS = 6;
+
+function randomNudgeDelayMs() {
+  const hours = NUDGE_MIN_HOURS + Math.random() * (NUDGE_MAX_HOURS - NUDGE_MIN_HOURS);
+  return Math.round(hours * 60 * 60 * 1000);
+}
+
 // Dedicated, empty working directory for claude CLI calls so it never picks
 // up this project's own files, CLAUDE.md, or git context as extra "memory".
 const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
@@ -188,6 +200,18 @@ async function start() {
       try {
         if (!synthetic) {
           await messagesCollection.insertOne({ userId, role: 'user', text: userMessage, createdAt: new Date() });
+          // A real reply from the user - cancel any pending check-in streak
+          // and push the next possible check-in back out into the future.
+          await usersCollection.updateOne(
+            { _id: user._id },
+            {
+              $set: {
+                nudgeAttempts: 0,
+                nudgeState: 'active',
+                nextNudgeDueAt: new Date(Date.now() + randomNudgeDelayMs()),
+              },
+            }
+          );
         }
 
         const freshUser = await usersCollection.findOne({ _id: user._id });
