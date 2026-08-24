@@ -63,8 +63,18 @@ fetch('/api/pet')
   })
   .catch(() => {});
 
+// Lets the server know whether this tab is actually in front of the user
+// right now, so it only sends a push notification for a live reply when
+// every connected tab/device for this account is backgrounded (or gone) -
+// no point pinging a phone whose screen is already showing the message.
+function reportVisibility() {
+  socket.emit('visibility', document.visibilityState === 'visible');
+}
+document.addEventListener('visibilitychange', reportVisibility);
+
 socket.on('connect', () => {
   statusEl.textContent = 'online';
+  reportVisibility(); // sync current state right away - don't wait for the next tab switch
 });
 
 socket.on('disconnect', () => {

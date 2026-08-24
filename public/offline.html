@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Offline - TukuruMukuru</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  #retry-btn {
+    width: 100%;
+    padding: 10px 14px;
+    margin-top: 12px;
+    border: none;
+    border-radius: 10px;
+    background: #c1522b;
+    color: #1b120c;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #retry-btn:hover { background: #d96a41; }
+</style>
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <div class="avatar large">🐾</div>
+    <h1>You're offline</h1>
+    <p class="subtitle">TukuruMukuru can't reach the server right now. Check your connection and try again.</p>
+    <button id="retry-btn" type="button">Retry</button>
+  </div>
+  <script>
+    document.getElementById('retry-btn').addEventListener('click', () => window.location.reload());
+  </script>
+</body>
+</html>

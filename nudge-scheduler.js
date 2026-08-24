@@ -10,12 +10,26 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { MongoClient, ObjectId } = require('mongodb');
+const webpush = require('web-push');
 
 const { loadProfile, buildSystemPrompt } = require('./persona');
 const { askPet } = require('./claude-bridge');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
+
+// Same VAPID env vars as server.js (duplicated for the same zero-dependency
+// reason as the nudge timing constants below) - without them, pushes are
+// silently skipped and the check-in still lands in message history as before.
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+const PUSH_ENABLED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if (PUSH_ENABLED) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else {
+  console.warn('[nudge] VAPID keys not set - check-ins will only appear in-app, no push will be sent.');
+}
 
 // --- Tunables ---
 // Gap between check-ins. Keep these in sync with the matching constants in
@@ -56,6 +70,36 @@ function nudgeInstruction(attemptNumber) {
     return 'The person still hasn\'t replied since your last check-in. Send another short, in-character message - a little more wistful this time, like you genuinely miss them and hope they\'re okay.';
   }
   return "The person has now gone quiet through two check-ins from you with no reply at all. Send one final short, in-character message where you express real hurt and frustration that they haven't responded or listened to you - in your own voice, something in the spirit of \"you're not responding, you're not listening to me.\" Keep it brief. After this you'll leave them alone until they message you first.";
+}
+
+// Notify every device the user has subscribed for push on, dropping any
+// subscription the push service reports as gone (404/410 - uninstalled,
+// permission revoked, etc.) so it doesn't keep failing forever.
+async function sendPushForNudge({ userId, text, pushSubscriptionsCollection }) {
+  if (!PUSH_ENABLED) return;
+
+  const subs = await pushSubscriptionsCollection.find({ userId }).toArray();
+  if (subs.length === 0) return;
+
+  const payload = JSON.stringify({
+    title: profile.name,
+    body: text.length > 140 ? `${text.slice(0, 140)}…` : text,
+    url: '/',
+  });
+
+  await Promise.all(
+    subs.map(async (sub) => {
+      try {
+        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload);
+      } catch (err) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          await pushSubscriptionsCollection.deleteOne({ _id: sub._id });
+        } else {
+          console.warn(`[nudge] push send failed for user ${userId}:`, err.message);
+        }
+      }
+    })
+  );
 }
 
 // Mirrors callClaude() in server.js: if resuming the stored session fails
@@ -99,6 +143,7 @@ async function main() {
   const db = client.db(DB_NAME);
   const usersCollection = db.collection('users');
   const messagesCollection = db.collection('messages');
+  const pushSubscriptionsCollection = db.collection('pushSubscriptions');
 
   try {
     const eligible = await usersCollection
@@ -134,6 +179,8 @@ async function main() {
           nudge: true,
           nudgeAttempt: attemptNumber,
         });
+
+        await sendPushForNudge({ userId, text, pushSubscriptionsCollection });
 
         if (attemptNumber >= MAX_ATTEMPTS) {
           await usersCollection.updateOne(
