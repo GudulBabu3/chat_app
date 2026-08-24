@@ -7,11 +7,12 @@ const session = require('express-session');
 const { MongoStore } = require('connect-mongo');
 const { Server } = require('socket.io');
 const { MongoClient, ObjectId } = require('mongodb');
-const webpush = require('web-push');
 
 const { loadProfile, buildSystemPrompt } = require('./persona');
 const { askPet } = require('./claude-bridge');
 const { verifyPassword, isRateLimited, recordAttempt, clearAttempts } = require('./auth');
+const petAdmin = require('./pet-admin');
+const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushToUser } = require('./push-sender');
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
@@ -20,18 +21,7 @@ const MAX_MESSAGE_LENGTH = 2000;
 const HISTORY_LIMIT = 50;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
-// Web Push (PWA notifications for TukuruMukuru's replies and check-ins,
-// sent whenever the user isn't actively looking at an open tab).
-// Generate a keypair once with `npx web-push generate-vapid-keys` and set
-// these as real env vars in the deploy environment - without them, push
-// subscribe/send just no-ops rather than crashing the server.
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
-const PUSH_ENABLED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
-if (PUSH_ENABLED) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-} else {
+if (!PUSH_ENABLED) {
   console.warn('[push] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set - push notifications are disabled.');
 }
 
@@ -53,7 +43,6 @@ const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
 if (!fs.existsSync(CLAUDE_CWD)) fs.mkdirSync(CLAUDE_CWD, { recursive: true });
 
 const profile = loadProfile();
-const SYSTEM_PROMPT = buildSystemPrompt(profile);
 const ALLOWED_STICKERS = Object.keys(profile.stickers.guidance);
 const DEFAULT_STICKER = profile.stickers.default || 'neutral';
 
@@ -64,7 +53,7 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server);
 
-let db, usersCollection, messagesCollection, pushSubscriptionsCollection;
+let db, usersCollection, messagesCollection, pushSubscriptionsCollection, petAdminCollection;
 
 const sessionMiddleware = session({
   secret: SESSION_SECRET,
@@ -166,33 +155,6 @@ app.post('/api/push/unsubscribe', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-function truncateForPush(text) {
-  return text.length > 140 ? `${text.slice(0, 140)}…` : text;
-}
-
-// Shared by the live chat path below and (separately, by design - see the
-// duplicated VAPID setup at the top of nudge-scheduler.js) that script's own
-// copy of this same logic for out-of-session check-ins.
-async function sendPushToUser(userId, { title, body, url }) {
-  if (!PUSH_ENABLED) return;
-  const subs = await pushSubscriptionsCollection.find({ userId }).toArray();
-  if (subs.length === 0) return;
-  const payload = JSON.stringify({ title, body, url });
-  await Promise.all(
-    subs.map(async (sub) => {
-      try {
-        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload);
-      } catch (err) {
-        if (err.statusCode === 404 || err.statusCode === 410) {
-          await pushSubscriptionsCollection.deleteOne({ _id: sub._id });
-        } else {
-          console.warn(`[push] send failed for user ${userId}:`, err.message);
-        }
-      }
-    })
-  );
-}
-
 async function start() {
   const client = new MongoClient(MONGO_URL);
   await client.connect();
@@ -200,6 +162,7 @@ async function start() {
   usersCollection = db.collection('users');
   messagesCollection = db.collection('messages');
   pushSubscriptionsCollection = db.collection('pushSubscriptions');
+  petAdminCollection = db.collection('petAdmin');
   console.log(`Connected to MongoDB (${MONGO_URL}/${DB_NAME})`);
 
   const busyUsers = new Set();
@@ -263,12 +226,16 @@ async function start() {
     );
 
     async function callClaude(userMessage, isFirstTurn, sessionIdToUse) {
+      // Built fresh on every turn (not cached at startup) so an admin edit
+      // via admin.js - a new skill, a like/dislike, today's special note -
+      // takes effect on the very next message, no restart needed.
+      const systemPrompt = buildSystemPrompt(profile, await petAdmin.getAdminState(petAdminCollection));
       try {
         return await askPet({
           sessionId: sessionIdToUse,
           isFirstTurn,
           userMessage,
-          systemPrompt: SYSTEM_PROMPT,
+          systemPrompt,
           cwd: CLAUDE_CWD,
           allowedStickers: ALLOWED_STICKERS,
         });
@@ -281,7 +248,7 @@ async function start() {
           sessionId: freshId,
           isFirstTurn: true,
           userMessage,
-          systemPrompt: SYSTEM_PROMPT,
+          systemPrompt,
           cwd: CLAUDE_CWD,
           allowedStickers: ALLOWED_STICKERS,
         });
@@ -339,8 +306,8 @@ async function start() {
         // Fire-and-forget: a slow or failing push send shouldn't hold up
         // clearing the typing indicator for whoever's actually watching.
         if (!isUserVisible(userId)) {
-          sendPushToUser(userId, { title: profile.name, body: truncateForPush(text), url: '/' }).catch((err) =>
-            console.warn(`[${username}] push send failed:`, err.message)
+          sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: text, url: '/' }).catch(
+            (err) => console.warn(`[${username}] push send failed:`, err.message)
           );
         }
       } catch (err) {

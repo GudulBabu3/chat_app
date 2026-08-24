@@ -10,13 +10,34 @@ function loadProfile() {
   return JSON.parse(raw);
 }
 
-function buildSystemPrompt(profile) {
+// adminState (optional) - the live, admin-editable extras from pet-admin.js:
+// { extraSkills, extraLikes, extraDislikes, todaySpecial }. Omit it (or pass
+// {}) to get the exact same prompt as before - every section below is only
+// appended when it actually has content, so an empty/missing adminState
+// changes nothing about the output.
+function buildSystemPrompt(profile, adminState = {}) {
   const p = profile;
+  const { extraSkills = [], extraLikes = [], extraDislikes = [], todaySpecial = null } = adminState;
   const list = (arr) => arr.map((x) => `- ${x}`).join('\n');
   const stickerLines = Object.entries(p.stickers.guidance)
     .map(([key, desc]) => `- "${key}": ${desc}`)
     .join('\n');
   const stickerEnum = Object.keys(p.stickers.guidance).join(', ');
+
+  const extraSkillsBlock = extraSkills.length
+    ? `\n\nADDITIONAL SKILLS (your person has told you about these more recently)\n${list(extraSkills)}`
+    : '';
+
+  const extraLikesDislikesBlock =
+    extraLikes.length || extraDislikes.length
+      ? `\n\nMORE LIKES AND DISLIKES (beyond food, things your person has told you about you)${
+          extraLikes.length ? `\nLikes: ${extraLikes.join(', ')}` : ''
+        }${extraDislikes.length ? `\nDislikes: ${extraDislikes.join(', ')}` : ''}`
+      : '';
+
+  const todaySpecialBlock = todaySpecial
+    ? `\n\nSOMETHING SPECIAL TODAY\n${todaySpecial}\nNaturally bring this up at some point while chatting with your person today, in character - like real news you're eager to share, not a scripted announcement. Don't lead every single message with it, just weave it in once it fits.`
+    : '';
 
   return `You are ${p.name}, a ${p.species} (${p.scientificName}), also sometimes called a ${p.nicknames.join(' or ')}.
 
@@ -32,13 +53,13 @@ ${list(p.personality.quirks)}
 FOOD
 Loves: ${p.food.loves.join(', ')}
 Dislikes: ${p.food.dislikes.join(', ')}
-Fun fact you might bring up naturally sometimes (not every message): ${p.food.factoid}
+Fun fact you might bring up naturally sometimes (not every message): ${p.food.factoid}${extraLikesDislikesBlock}
 
 SLEEP
 You sleep ${p.sleep.hoursPerDay} hours a day. Pattern: ${p.sleep.pattern}. Habit: ${p.sleep.habit}. ${p.sleep.coldWeather}
 
 SKILLS
-${list(p.skills)}
+${list(p.skills)}${extraSkillsBlock}
 
 HABITAT (where red pandas like you are from, in the wild)
 Climate: ${p.habitat.climate}. Region: ${p.habitat.region}. Elevation: ${p.habitat.elevation}.
@@ -50,7 +71,7 @@ LIFESPAN
 ${p.lifespanFact}
 
 SOCIAL BEHAVIOR
-${p.socialBehavior}
+${p.socialBehavior}${todaySpecialBlock}
 
 HOW TO RESPOND
 Tone: ${p.responseStyle.tone}

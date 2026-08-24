@@ -1,0 +1,189 @@
+// Admin CLI for TukuruMukuru. Run over SSH on the server, same trust model
+// as create-user.js - shell access to this box IS the authorization, there
+// is no separate login for this script.
+//
+// Usage:
+//   node admin.js users
+//   node admin.js send <username> <message> [sticker]
+//   node admin.js skill add <text>
+//   node admin.js skill remove <text>
+//   node admin.js skill list
+//   node admin.js like add <text>
+//   node admin.js like remove <text>
+//   node admin.js like list
+//   node admin.js dislike add <text>
+//   node admin.js dislike remove <text>
+//   node admin.js dislike list
+//   node admin.js special set <text>
+//   node admin.js special show
+//   node admin.js special clear
+//   node admin.js status
+//
+// Quote <text>/<message> if it has spaces, e.g.:
+//   node admin.js send shyamaluncle "Guess what I did today!"
+//   node admin.js skill add "can do a little backflip off a low branch"
+// (skill/like/dislike/special text is forgiving either way - unquoted words
+// get rejoined with single spaces - but `send`'s optional trailing sticker
+// argument means its message specifically should be quoted.)
+
+const { MongoClient } = require('mongodb');
+const { loadProfile } = require('./persona');
+const petAdmin = require('./pet-admin');
+const { PUSH_ENABLED, sendPushToUser } = require('./push-sender');
+
+const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
+const DB_NAME = process.env.DB_NAME || 'petchat';
+
+const USAGE = `Usage:
+  node admin.js users
+  node admin.js send <username> <message> [sticker]
+  node admin.js skill <add|remove|list> [text]
+  node admin.js like <add|remove|list> [text]
+  node admin.js dislike <add|remove|list> [text]
+  node admin.js special <set|show|clear> [text]
+  node admin.js status`;
+
+function usageAndExit() {
+  console.error(USAGE);
+  process.exit(1);
+}
+
+function printList(label, items) {
+  console.log(`${label}:`);
+  console.log(items.length ? items.map((t, i) => `  ${i + 1}. ${t}`).join('\n') : '  (none yet)');
+}
+
+async function main() {
+  const [, , command, ...rest] = process.argv;
+  if (!command) usageAndExit();
+
+  const client = new MongoClient(MONGO_URL);
+  await client.connect();
+  const db = client.db(DB_NAME);
+  const usersCollection = db.collection('users');
+  const messagesCollection = db.collection('messages');
+  const pushSubscriptionsCollection = db.collection('pushSubscriptions');
+  const petAdminCollection = db.collection('petAdmin');
+
+  try {
+    switch (command) {
+      case 'users': {
+        const users = await usersCollection
+          .find({}, { projection: { username: 1, createdAt: 1 } })
+          .sort({ username: 1 })
+          .toArray();
+        if (users.length === 0) {
+          console.log('No users yet.');
+          break;
+        }
+        users.forEach((u) => {
+          const joined = u.createdAt ? ` (joined ${new Date(u.createdAt).toISOString().slice(0, 10)})` : '';
+          console.log(`${u.username}${joined}`);
+        });
+        break;
+      }
+
+      case 'send': {
+        const [username, message, sticker] = rest;
+        if (!username || !message) usageAndExit();
+
+        const profile = loadProfile();
+        const allowedStickers = Object.keys(profile.stickers.guidance);
+        const chosenSticker = sticker && allowedStickers.includes(sticker) ? sticker : profile.stickers.default;
+        if (sticker && chosenSticker !== sticker) {
+          console.warn(`"${sticker}" isn't a valid sticker (valid: ${allowedStickers.join(', ')}) - using "${chosenSticker}" instead.`);
+        }
+
+        const user = await usersCollection.findOne({ username: username.trim().toLowerCase() });
+        if (!user) {
+          console.error(`No user found with username "${username}". Run "node admin.js users" to see who exists.`);
+          process.exit(1);
+        }
+        const userId = user._id.toString();
+
+        await messagesCollection.insertOne({
+          userId,
+          role: 'pet',
+          text: message,
+          sticker: chosenSticker,
+          createdAt: new Date(),
+          adminSent: true,
+        });
+        console.log(`Saved message for "${username}".`);
+
+        if (PUSH_ENABLED) {
+          await sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: message, url: '/' });
+          console.log('Push notification sent (if they have a subscription).');
+        } else {
+          console.log('(Push not configured - VAPID env vars not set - the message will show next time they open the app.)');
+        }
+        break;
+      }
+
+      case 'skill':
+      case 'like':
+      case 'dislike': {
+        const field = { skill: 'extraSkills', like: 'extraLikes', dislike: 'extraDislikes' }[command];
+        const [sub, ...textParts] = rest;
+        const text = textParts.join(' ').trim();
+
+        if (sub === 'list') {
+          const state = await petAdmin.getAdminState(petAdminCollection);
+          printList(`${command}s`, state[field]);
+        } else if (sub === 'add') {
+          if (!text) usageAndExit();
+          await petAdmin.addToList(petAdminCollection, field, text);
+          console.log(`Added to ${command}s: "${text}"`);
+        } else if (sub === 'remove') {
+          if (!text) usageAndExit();
+          await petAdmin.removeFromList(petAdminCollection, field, text);
+          console.log(`Removed from ${command}s (if it was there): "${text}"`);
+        } else {
+          usageAndExit();
+        }
+        break;
+      }
+
+      case 'special': {
+        const [sub, ...textParts] = rest;
+        const text = textParts.join(' ').trim();
+
+        if (sub === 'set') {
+          if (!text) usageAndExit();
+          await petAdmin.setTodaySpecial(petAdminCollection, text);
+          console.log(`Today's special set: "${text}"`);
+          console.log("TukuruMukuru will naturally bring this up with anyone who chats today - it clears itself automatically tomorrow.");
+        } else if (sub === 'show') {
+          const state = await petAdmin.getAdminState(petAdminCollection);
+          console.log(state.todaySpecial || '(nothing set for today)');
+        } else if (sub === 'clear') {
+          await petAdmin.clearTodaySpecial(petAdminCollection);
+          console.log("Today's special cleared.");
+        } else {
+          usageAndExit();
+        }
+        break;
+      }
+
+      case 'status': {
+        const state = await petAdmin.getAdminState(petAdminCollection);
+        printList('Extra skills', state.extraSkills);
+        printList('Extra likes', state.extraLikes);
+        printList('Extra dislikes', state.extraDislikes);
+        console.log(`Today's special: ${state.todaySpecial || '(none set)'}`);
+        console.log(`Push notifications: ${PUSH_ENABLED ? 'configured' : 'NOT configured (VAPID env vars missing)'}`);
+        break;
+      }
+
+      default:
+        usageAndExit();
+    }
+  } finally {
+    await client.close();
+  }
+}
+
+main().catch((err) => {
+  console.error('admin.js failed:', err.message);
+  process.exit(1);
+});
