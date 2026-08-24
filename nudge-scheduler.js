@@ -6,6 +6,8 @@
 //
 // Usage: node nudge-scheduler.js   (run from the project root, e.g. via cron)
 
+require('dotenv').config();
+
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -14,14 +16,10 @@ const { MongoClient, ObjectId } = require('mongodb');
 const { loadProfile, buildSystemPrompt } = require('./persona');
 const { askPet } = require('./claude-bridge');
 const petAdmin = require('./pet-admin');
-const { PUSH_ENABLED, sendPushToUser } = require('./push-sender');
+const { notifyLiveServer } = require('./notify-live');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
-
-if (!PUSH_ENABLED) {
-  console.warn('[nudge] VAPID keys not set - check-ins will only appear in-app, no push will be sent.');
-}
 
 // --- Tunables ---
 // Gap between check-ins. Keep these in sync with the matching constants in
@@ -104,7 +102,6 @@ async function main() {
   const db = client.db(DB_NAME);
   const usersCollection = db.collection('users');
   const messagesCollection = db.collection('messages');
-  const pushSubscriptionsCollection = db.collection('pushSubscriptions');
   const petAdminCollection = db.collection('petAdmin');
 
   // Built once per run (this script is a fresh short-lived process every
@@ -148,7 +145,7 @@ async function main() {
           nudgeAttempt: attemptNumber,
         });
 
-        await sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: text, url: '/' });
+        await notifyLiveServer({ userId, text, sticker });
 
         if (attemptNumber >= MAX_ATTEMPTS) {
           await usersCollection.updateOne(

@@ -26,10 +26,13 @@
 // get rejoined with single spaces - but `send`'s optional trailing sticker
 // argument means its message specifically should be quoted.)
 
+require('dotenv').config();
+
 const { MongoClient } = require('mongodb');
 const { loadProfile } = require('./persona');
 const petAdmin = require('./pet-admin');
-const { PUSH_ENABLED, sendPushToUser } = require('./push-sender');
+const { PUSH_ENABLED } = require('./push-sender');
+const { notifyLiveServer } = require('./notify-live');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
@@ -62,7 +65,6 @@ async function main() {
   const db = client.db(DB_NAME);
   const usersCollection = db.collection('users');
   const messagesCollection = db.collection('messages');
-  const pushSubscriptionsCollection = db.collection('pushSubscriptions');
   const petAdminCollection = db.collection('petAdmin');
 
   try {
@@ -111,12 +113,8 @@ async function main() {
         });
         console.log(`Saved message for "${username}".`);
 
-        if (PUSH_ENABLED) {
-          await sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: message, url: '/' });
-          console.log('Push notification sent (if they have a subscription).');
-        } else {
-          console.log('(Push not configured - VAPID env vars not set - the message will show next time they open the app.)');
-        }
+        await notifyLiveServer({ userId, text: message, sticker: chosenSticker });
+        console.log('Told the live server - it will show up instantly if they have the app open, or push a notification if not (next reload either way if the live server is unreachable).');
         break;
       }
 

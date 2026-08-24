@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -20,9 +22,14 @@ const DB_NAME = process.env.DB_NAME || 'petchat';
 const MAX_MESSAGE_LENGTH = 2000;
 const HISTORY_LIMIT = 50;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const INTERNAL_ADMIN_SECRET = process.env.INTERNAL_ADMIN_SECRET || '';
 
 if (!PUSH_ENABLED) {
   console.warn('[push] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set - push notifications are disabled.');
+}
+
+if (!INTERNAL_ADMIN_SECRET) {
+  console.warn('[internal] INTERNAL_ADMIN_SECRET not set - admin.js/nudge-scheduler.js can still save messages, but cannot notify live tabs or trigger push for them.');
 }
 
 // Gap before TukuruMukuru's next unprompted check-in, reset every time the
@@ -179,6 +186,41 @@ async function start() {
     }
     return false;
   }
+
+  function notifyUserSockets(userId, payload) {
+    const sockets = userSockets.get(userId);
+    if (!sockets) return;
+    for (const s of sockets) {
+      s.emit('pet-message', payload);
+    }
+  }
+
+  // Lets out-of-band writers (admin.js sending as the pet, nudge-scheduler.js's
+  // check-ins) - both separate short-lived processes with no socket
+  // connections of their own - reach into this running server after they've
+  // already saved a message to Mongo directly, so it can appear live for
+  // anyone with the app open right now, or trigger a push for anyone who
+  // isn't looking. Loopback-only (server.listen below binds 127.0.0.1) plus
+  // a shared secret, since this deliberately bypasses normal session auth.
+  app.post('/internal/notify', async (req, res) => {
+    if (!INTERNAL_ADMIN_SECRET || req.get('X-Internal-Secret') !== INTERNAL_ADMIN_SECRET) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+    const { userId, text, sticker } = req.body || {};
+    if (!userId || !text) {
+      return res.status(400).json({ ok: false, error: 'userId and text required' });
+    }
+
+    notifyUserSockets(userId, { text, sticker: sticker || DEFAULT_STICKER, createdAt: new Date() });
+
+    if (!isUserVisible(userId)) {
+      sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: text, url: '/' }).catch(
+        (err) => console.warn(`[internal notify] push send failed for ${userId}:`, err.message)
+      );
+    }
+
+    res.json({ ok: true });
+  });
 
   io.on('connection', async (socket) => {
     const httpSession = socket.request.session;
