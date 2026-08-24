@@ -6,9 +6,9 @@
 //
 // Usage: node nudge-scheduler.js   (run from the project root, e.g. via cron)
 
-require('dotenv').config();
-
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 const fs = require('fs');
 const crypto = require('crypto');
 const { MongoClient, ObjectId } = require('mongodb');

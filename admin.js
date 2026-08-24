@@ -26,7 +26,8 @@
 // get rejoined with single spaces - but `send`'s optional trailing sticker
 // argument means its message specifically should be quoted.)
 
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const { MongoClient } = require('mongodb');
 const { loadProfile } = require('./persona');
