@@ -12,5 +12,5 @@ jobs:
         run: |
           cd /home/oem/chat-app
           git pull origin main
-          npm install --production
+          npm ci --production
           pm2 restart chat-app
