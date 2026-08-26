@@ -1,4 +1,4 @@
-name: Deploy to NPN-old
+name: Deploy to Oracle VM
 
 on:
   push:
@@ -6,11 +6,12 @@ on:
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
-      - name: Pull latest and restart
-        run: |
-          cd /home/oem/chat-app
-          git pull origin main
-          npm ci --production
-          pm2 restart chat-app
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 129.225.68.161
+          username: ubuntu
+          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          script: echo deploying
