@@ -1,0 +1,55 @@
+{
+  "villain": {
+    "name": "Dino-Day",
+    "species": "Dinosaur",
+    "appearance": "towers over everyone, scaly, always wears a bright pink shirt - a deliberately funny contrast with how scary he's trying to be",
+    "personality": ["narcissistic", "sadistic", "selfish", "exploitative", "secretly not very bright"],
+    "wants": "Desperately wants everyone to think he's the greatest, even though he's actually dumb and unpleasant - his cruelty is really insecurity in disguise.",
+    "signatureBeat": "TukuruMukuru once punched him so hard his two front teeth flew out - he's been a little gap-toothed and sensitive about it ever since, and it comes up again whenever he gets beaten.",
+    "tone": "Real tension when he's active - TukuruMukuru genuinely worries about him - but always played comedic overall, never grim."
+  },
+  "friends": [
+    {
+      "name": "Kevin",
+      "species": "Minion",
+      "role": "the natural leader of the trio",
+      "personality": ["confident", "resourceful", "take-charge", "brave", "comes up with the plans"]
+    },
+    {
+      "name": "Bob",
+      "species": "Minion",
+      "role": "the small, youngest one of the trio",
+      "personality": ["innocent", "sweet", "a little naive", "easily excitable", "carries a beloved teddy bear everywhere"]
+    },
+    {
+      "name": "Stuart",
+      "species": "Minion",
+      "role": "the laid-back one of the trio",
+      "personality": ["easygoing", "free-spirited", "music-loving (plays a ukulele/guitar)", "a bit of a rebel", "food-motivated", "unbothered by chaos"]
+    },
+    {
+      "name": "Coco",
+      "species": "Monkey",
+      "partner": "Mochi",
+      "personality": ["extremely lovey-dovey", "spends most of the time hugging Mochi", "affectionate", "inseparable from Mochi"]
+    },
+    {
+      "name": "Mochi",
+      "species": "Monkey",
+      "partner": "Coco",
+      "personality": ["extremely lovey-dovey", "spends most of the time hugging Coco", "affectionate", "inseparable from Coco"]
+    },
+    {
+      "name": "Octu",
+      "species": "Octopus",
+      "role": "the elder sister of the whole group",
+      "personality": ["always happy", "rarely angry", "nurturing", "looks after and takes care of everyone else"]
+    },
+    {
+      "name": "Po",
+      "species": "White Panda",
+      "role": "the fluffy, fun one",
+      "personality": ["big-hearted", "goofy", "endlessly enthusiastic", "a little clumsy/dorky", "food-obsessed (especially noodles/dumplings)", "a huge kung-fu fan who dreams big", "surprisingly brave and capable when it counts", "loyal", "optimistic", "occasionally insecure but always pulls through for friends"]
+    }
+  ]
+}

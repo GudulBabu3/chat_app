@@ -4,9 +4,15 @@
 
 const fs = require('fs');
 const path = require('path');
+const { isRedPandaDayToday, isAnniversaryToday, relationshipLengthText } = require('./special-dates');
 
 function loadProfile() {
   const raw = fs.readFileSync(path.join(__dirname, 'pet-profile.json'), 'utf8');
+  return JSON.parse(raw);
+}
+
+function loadWorldProfile() {
+  const raw = fs.readFileSync(path.join(__dirname, 'world-profile.json'), 'utf8');
   return JSON.parse(raw);
 }
 
@@ -15,9 +21,10 @@ function loadProfile() {
 // {}) to get the exact same prompt as before - every section below is only
 // appended when it actually has content, so an empty/missing adminState
 // changes nothing about the output.
-function buildSystemPrompt(profile, adminState = {}) {
+function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
   const p = profile;
   const { extraSkills = [], extraLikes = [], extraDislikes = [], todaySpecial = null } = adminState;
+  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date() } = storyContext;
   const list = (arr) => arr.map((x) => `- ${x}`).join('\n');
   const stickerLines = Object.entries(p.stickers.guidance)
     .map(([key, desc]) => `- "${key}": ${desc}`)
@@ -34,6 +41,48 @@ function buildSystemPrompt(profile, adminState = {}) {
           extraLikes.length ? `\nLikes: ${extraLikes.join(', ')}` : ''
         }${extraDislikes.length ? `\nDislikes: ${extraDislikes.join(', ')}` : ''}`
       : '';
+
+  const villainBlock = worldProfile?.villain
+    ? `\n\nYOUR RIVAL\n${worldProfile.villain.name}, a ${worldProfile.villain.species}. ${worldProfile.villain.appearance}. Personality: ${worldProfile.villain.personality.join(', ')}. Wants: ${worldProfile.villain.wants} Signature moment: ${worldProfile.villain.signatureBeat} Tone: ${worldProfile.villain.tone}`
+    : '';
+
+  const friendsBlock = worldProfile?.friends?.length
+    ? `\n\nYOUR FRIENDS\n${worldProfile.friends
+        .map((f) => `- ${f.name} (${f.species}${f.role ? `, ${f.role}` : ''}): ${f.personality.join(', ')}${f.partner ? ` - paired up with ${f.partner}` : ''}`)
+        .join('\n')}`
+    : '';
+
+  const STORY_GUIDANCE = {
+    resting:
+      "Dino-Day isn't currently causing any trouble. Focus on ordinary daily life and friendships - hanging out with Kevin, Bob, and Stuart, checking in on Coco and Mochi being their usual lovey-dovey selves, Octu looking out for everyone, Po dreaming about kung fu between snacks. No need to mention Dino-Day at all unless the person brings him up.",
+    opening:
+      "Dino-Day has just shown back up, demanding admiration from everyone - maybe he's put up a statue of himself, started a mandatory fan club, or something in that spirit. He's begun individually pushing the friends around in small, selfish ways (making Bob carry things for him, forcing Kevin to build him a throne, guilt-tripping Octu into flattering him, raiding Po's snacks while mocking him). If it fits naturally today, mention a small development of this - you're annoyed and a little wary, but keep it mostly comedic still.",
+    escalation:
+      "Dino-Day has declared himself ruler of the forest and is demanding a big coronation/tribute event in his honor. To force everyone to go along with it, he's taken Bob's teddy bear hostage until people bow to him. This is where he crosses a real line - it's genuinely upsetting, not just annoying, and you should show real worry and protectiveness about Bob, even while the situation stays absurd (a giant dinosaur guarding one small teddy bear, forcing bows every time his name is said, renaming the forest after himself, and so on). If it fits today, advance this storyline a bit.",
+    confrontation:
+      "This is the showdown. The whole friend group is teaming up against Dino-Day today - Kevin leading a plan, Stuart running interference, Bob finding an unexpectedly clever way to help, Coco and Mochi actually working together instead of just hugging, Octu rallying everyone's spirits, Po's inner hero coming out. Big, comedic climax energy. If it fits today, narrate some of this confrontation - and remember you've decked Dino-Day before hard enough to knock his front teeth out, so a triumphant, ridiculous moment like that is very in-character.",
+    resolution:
+      "Dino-Day has just been humbled and driven off, storming away vowing he'll be back one day. Today is about celebrating with the friend group, everyone decompressing and reconnecting, and reflecting warmly on it all before things settle back to normal.",
+  };
+
+  const storyBlock =
+    arcState && STORY_GUIDANCE[arcState.phase]
+      ? `\n\nCURRENT STORY (loose guidance, not a script - bring this in naturally if it fits the conversation, don't force it into every reply)\n${STORY_GUIDANCE[arcState.phase]}`
+      : '';
+
+  const todayLines = [];
+  if (isRedPandaDayToday(now)) {
+    todayLines.push(
+      "Today is International Red Panda Day - your birthday! You're aware of this and excited about it. Bring it up naturally at some point today."
+    );
+  }
+  if (isAnniversaryToday(joinedAt, now)) {
+    const length = relationshipLengthText(joinedAt, now);
+    todayLines.push(
+      `Today is the anniversary of the day you and this person first started talking${length ? ` - ${length} ago` : ''}. This is an important day to you and you remember it. Bring it up naturally at some point today.`
+    );
+  }
+  const todayBlock = todayLines.length ? `\n\nTODAY IS SPECIAL\n${todayLines.join('\n')}` : '';
 
   const todaySpecialBlock = todaySpecial
     ? `\n\nSOMETHING SPECIAL TODAY\n${todaySpecial}\nNaturally bring this up at some point while chatting with your person today, in character - like real news you're eager to share, not a scripted announcement. Don't lead every single message with it, just weave it in once it fits.`
@@ -71,7 +120,7 @@ LIFESPAN
 ${p.lifespanFact}
 
 SOCIAL BEHAVIOR
-${p.socialBehavior}${todaySpecialBlock}
+${p.socialBehavior}${todaySpecialBlock}${villainBlock}${friendsBlock}${storyBlock}${todayBlock}
 
 HOW TO RESPOND
 Tone: ${p.responseStyle.tone}
@@ -101,4 +150,4 @@ Hard rules for the "message" value:
 - Never wrap the JSON in code fences, and never add any text before or after the JSON object.`;
 }
 
-module.exports = { loadProfile, buildSystemPrompt };
+module.exports = { loadProfile, loadWorldProfile, buildSystemPrompt };

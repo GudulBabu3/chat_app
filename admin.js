@@ -18,6 +18,10 @@
 //   node admin.js special show
 //   node admin.js special clear
 //   node admin.js status
+//   node admin.js arc status
+//   node admin.js arc start
+//   node admin.js arc skip
+//   node admin.js arc reset
 //
 // Quote <text>/<message> if it has spaces, e.g.:
 //   node admin.js send shyamaluncle "Guess what I did today!"
@@ -32,6 +36,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { MongoClient } = require('mongodb');
 const { loadProfile } = require('./persona');
 const petAdmin = require('./pet-admin');
+const storyArc = require('./story-arc');
 const { PUSH_ENABLED } = require('./push-sender');
 const { notifyLiveServer } = require('./notify-live');
 
@@ -45,6 +50,7 @@ const USAGE = `Usage:
   node admin.js like <add|remove|list> [text]
   node admin.js dislike <add|remove|list> [text]
   node admin.js special <set|show|clear> [text]
+  node admin.js arc <status|start|skip|reset>
   node admin.js status`;
 
 function usageAndExit() {
@@ -67,6 +73,7 @@ async function main() {
   const usersCollection = db.collection('users');
   const messagesCollection = db.collection('messages');
   const petAdminCollection = db.collection('petAdmin');
+  const storyArcCollection = db.collection('storyArc');
 
   try {
     switch (command) {
@@ -170,7 +177,45 @@ async function main() {
         printList('Extra likes', state.extraLikes);
         printList('Extra dislikes', state.extraDislikes);
         console.log(`Today's special: ${state.todaySpecial || '(none set)'}`);
+        const arcState = await storyArc.getArcState(storyArcCollection);
+        console.log(`Story arc phase: ${arcState.phase} (see "arc status" for details)`);
         console.log(`Push notifications: ${PUSH_ENABLED ? 'configured' : 'NOT configured (VAPID env vars missing)'}`);
+        break;
+      }
+
+      case 'arc': {
+        const [sub] = rest;
+        if (sub === 'status') {
+          const state = await storyArc.getArcState(storyArcCollection);
+          console.log(`Phase: ${state.phase}`);
+          if (state.phase === 'resting') {
+            console.log(
+              state.nextArcDueAt
+                ? `Next arc due: ${new Date(state.nextArcDueAt).toISOString()}`
+                : 'Next arc due: (not scheduled yet - will be set on the next daily story-scheduler.js run)'
+            );
+          } else {
+            console.log(`Phase started: ${new Date(state.phaseStartedAt).toISOString()}`);
+            console.log(`Phase target length: ${state.phaseTargetDays} day(s)`);
+          }
+          console.log(`Completed cycles so far: ${state.cycleCount}`);
+        } else if (sub === 'start') {
+          const state = await storyArc.getArcState(storyArcCollection);
+          if (state.phase !== 'resting') {
+            console.log(`An arc is already in progress (phase: ${state.phase}). Use "arc reset" first if you want to force a restart.`);
+          } else {
+            const newState = await storyArc.forceAdvance(storyArcCollection);
+            console.log(`Started a new arc - phase is now "${newState.phase}".`);
+          }
+        } else if (sub === 'skip') {
+          const newState = await storyArc.forceAdvance(storyArcCollection);
+          console.log(`Advanced the arc - phase is now "${newState.phase}".`);
+        } else if (sub === 'reset') {
+          await storyArc.resetToResting(storyArcCollection);
+          console.log('Arc reset to resting.');
+        } else {
+          usageAndExit();
+        }
         break;
       }
 

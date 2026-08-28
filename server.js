@@ -10,10 +10,11 @@ const { MongoStore } = require('connect-mongo');
 const { Server } = require('socket.io');
 const { MongoClient, ObjectId } = require('mongodb');
 
-const { loadProfile, buildSystemPrompt } = require('./persona');
+const { loadProfile, loadWorldProfile, buildSystemPrompt } = require('./persona');
 const { askPet } = require('./claude-bridge');
 const { verifyPassword, isRateLimited, recordAttempt, clearAttempts } = require('./auth');
 const petAdmin = require('./pet-admin');
+const storyArc = require('./story-arc');
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushToUser } = require('./push-sender');
 
 const PORT = process.env.PORT || 3000;
@@ -50,6 +51,7 @@ const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
 if (!fs.existsSync(CLAUDE_CWD)) fs.mkdirSync(CLAUDE_CWD, { recursive: true });
 
 const profile = loadProfile();
+const worldProfile = loadWorldProfile();
 const ALLOWED_STICKERS = Object.keys(profile.stickers.guidance);
 const DEFAULT_STICKER = profile.stickers.default || 'neutral';
 
@@ -60,7 +62,7 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server);
 
-let db, usersCollection, messagesCollection, pushSubscriptionsCollection, petAdminCollection;
+let db, usersCollection, messagesCollection, pushSubscriptionsCollection, petAdminCollection, storyArcCollection;
 
 const sessionMiddleware = session({
   secret: SESSION_SECRET,
@@ -170,6 +172,7 @@ async function start() {
   messagesCollection = db.collection('messages');
   pushSubscriptionsCollection = db.collection('pushSubscriptions');
   petAdminCollection = db.collection('petAdmin');
+  storyArcCollection = db.collection('storyArc');
   console.log(`Connected to MongoDB (${MONGO_URL}/${DB_NAME})`);
 
   const busyUsers = new Set();
@@ -271,7 +274,12 @@ async function start() {
       // Built fresh on every turn (not cached at startup) so an admin edit
       // via admin.js - a new skill, a like/dislike, today's special note -
       // takes effect on the very next message, no restart needed.
-      const systemPrompt = buildSystemPrompt(profile, await petAdmin.getAdminState(petAdminCollection));
+      const systemPrompt = buildSystemPrompt(profile, await petAdmin.getAdminState(petAdminCollection), {
+        worldProfile,
+        arcState: await storyArc.getArcState(storyArcCollection),
+        joinedAt: user.createdAt,
+        now: new Date(),
+      });
       try {
         return await askPet({
           sessionId: sessionIdToUse,

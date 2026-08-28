@@ -13,9 +13,10 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { MongoClient, ObjectId } = require('mongodb');
 
-const { loadProfile, buildSystemPrompt } = require('./persona');
+const { loadProfile, loadWorldProfile, buildSystemPrompt } = require('./persona');
 const { askPet } = require('./claude-bridge');
 const petAdmin = require('./pet-admin');
+const storyArc = require('./story-arc');
 const { notifyLiveServer } = require('./notify-live');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
@@ -37,6 +38,7 @@ const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
 if (!fs.existsSync(CLAUDE_CWD)) fs.mkdirSync(CLAUDE_CWD, { recursive: true });
 
 const profile = loadProfile();
+const worldProfile = loadWorldProfile();
 const ALLOWED_STICKERS = Object.keys(profile.stickers.guidance);
 
 function randomNudgeDelayMs() {
@@ -103,11 +105,14 @@ async function main() {
   const usersCollection = db.collection('users');
   const messagesCollection = db.collection('messages');
   const petAdminCollection = db.collection('petAdmin');
+  const storyArcCollection = db.collection('storyArc');
 
-  // Built once per run (this script is a fresh short-lived process every
-  // cron tick anyway, so "once per run" already means admin edits show up
-  // within one ~30-minute cycle at the latest).
-  const systemPrompt = buildSystemPrompt(profile, await petAdmin.getAdminState(petAdminCollection));
+  // Fetched once per run (this script is a fresh short-lived process every
+  // cron tick anyway, so "once per run" already means admin/story edits
+  // show up within one ~30-minute cycle at the latest). joinedAt varies per
+  // user though, so the actual system prompt is built fresh per user below.
+  const adminState = await petAdmin.getAdminState(petAdminCollection);
+  const arcState = await storyArc.getArcState(storyArcCollection);
 
   try {
     const eligible = await usersCollection
@@ -125,6 +130,12 @@ async function main() {
       const attemptNumber = (user.nudgeAttempts || 0) + 1;
       const instruction = nudgeInstruction(attemptNumber);
       const sessionIdToUse = user.claudeSessionId || crypto.randomUUID();
+      const systemPrompt = buildSystemPrompt(profile, adminState, {
+        worldProfile,
+        arcState,
+        joinedAt: user.createdAt,
+        now: new Date(),
+      });
 
       try {
         const { text, sticker } = await askPetWithFallback({
