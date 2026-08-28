@@ -3,21 +3,39 @@
 // - the story only needs to move at most once per day).
 //
 // Advances the Dino-Day story arc state machine if it's due (see
-// story-arc.js). Doesn't talk to Claude or send any messages itself -
-// persona.js reads the resulting arc state fresh on every chat turn/nudge
-// and weaves it into the system prompt, so the *conversation* is what
-// actually narrates the story; this script just moves the clock forward.
+// story-arc.js). Doesn't send any chat messages itself - persona.js reads
+// the resulting arc state fresh on every chat turn/nudge and weaves it into
+// the system prompt, so the *conversation* is what actually narrates the
+// story; this script just moves the clock forward. It DOES talk to Claude,
+// though: exactly once per new arc (not every daily tick - see
+// story-arc.js's maybeGeneratePremise), it asks Claude to invent that
+// cycle's story premise, unless this is the guaranteed first arc.
 //
 // Usage: node story-scheduler.js   (run from the project root, e.g. via cron, once daily)
 
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
+const fs = require('fs');
 const { MongoClient } = require('mongodb');
 const storyArc = require('./story-arc');
+const { loadWorldProfile } = require('./persona');
+const { generateStoryPremise } = require('./claude-bridge');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
+
+// Same idea as server.js/nudge-scheduler.js: give the claude CLI its own
+// empty scratch directory so it never picks up this project's files as
+// extra "memory".
+const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
+if (!fs.existsSync(CLAUDE_CWD)) fs.mkdirSync(CLAUDE_CWD, { recursive: true });
+
+const worldProfile = loadWorldProfile();
+
+function generatePremise({ pastTitles }) {
+  return generateStoryPremise({ worldProfile, pastTitles, cwd: CLAUDE_CWD });
+}
 
 async function main() {
   const client = new MongoClient(MONGO_URL);
@@ -27,7 +45,7 @@ async function main() {
 
   try {
     const before = await storyArc.getArcState(storyArcCollection);
-    const after = await storyArc.advanceArcIfDue(storyArcCollection);
+    const after = await storyArc.advanceArcIfDue(storyArcCollection, new Date(), { generatePremise });
     if (before.phase !== after.phase) {
       console.log(`[story] arc advanced: "${before.phase}" -> "${after.phase}"`, after);
     } else {

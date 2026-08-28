@@ -6,6 +6,7 @@
 
 const { execFile } = require('child_process');
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 
 const CALL_TIMEOUT_MS = 60_000;
 const MAX_BUDGET_USD = '0.50';
@@ -167,4 +168,101 @@ function askPet({ sessionId, isFirstTurn, userMessage, systemPrompt, cwd, allowe
   });
 }
 
-module.exports = { askPet, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };
+// One-shot, non-conversational call: invents a brand-new story premise for
+// the next Dino-Day arc cycle. Unlike askPet(), this never resumes a prior
+// session (each call is fully independent - there's nothing to continue),
+// and its output schema is a story premise, not a sticker/message reply.
+//
+// Returns null (never throws) on any failure - callers should treat that as
+// "no premise this time" and fall back to hand-written default content,
+// rather than letting a network/CLI hiccup break the story feature.
+function buildPremiseJsonSchema() {
+  return JSON.stringify({
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+      opening: { type: 'string' },
+      escalation: { type: 'string' },
+      confrontation: { type: 'string' },
+      resolution: { type: 'string' },
+    },
+    required: ['title', 'opening', 'escalation', 'confrontation', 'resolution'],
+    additionalProperties: false,
+  });
+}
+
+function buildPremisePrompt({ worldProfile, pastTitles }) {
+  const villain = worldProfile.villain;
+  const friendLines = (worldProfile.friends || [])
+    .map((f) => `- ${f.name} (${f.species}${f.role ? `, ${f.role}` : ''}): ${f.personality.join(', ')}${f.partner ? ` - paired up with ${f.partner}` : ''}`)
+    .join('\n');
+  const avoidBlock = (pastTitles || []).length
+    ? `\n\nStorylines already used in past cycles (write something meaningfully different from all of these - a different friend targeted, a different scheme, a different comedic hook):\n${pastTitles.map((t) => `- ${t}`).join('\n')}`
+    : '';
+
+  return `You are helping design one new story arc for a recurring comedic villain subplot in a chat-companion app. Invent a brand-new, specific storyline for this cycle - do not write a generic template.
+
+VILLAIN: ${villain.name}, a ${villain.species}. ${villain.appearance}. Personality: ${villain.personality.join(', ')}. Wants: ${villain.wants}
+
+FRIEND GROUP (TukuruMukuru's friends - draw on these, especially for who gets targeted in the escalation beat):
+${friendLines}
+
+The arc always has this same four-part shape, but you invent the specific plot each time:
+- OPENING: the villain reappears, demanding admiration in some new specific way, and starts individually pushing one or more friends around in small selfish ways. Comedic, not yet alarming.
+- ESCALATION: his scheme gets pettier and more selfish, and MUST include one specific, genuinely mean/hurtful beat targeting one particular friend by name (not just generic annoyance) - something that would make TukuruMukuru truly worried and protective, while the overall situation stays absurd/comedic in its specifics.
+- CONFRONTATION: the whole friend group teams up against him for a big, comedic climactic showdown.
+- RESOLUTION: he's humbled and driven off, vowing to return; the group celebrates and reconnects.
+
+Write 2-4 sentences of specific narrative direction for each of the four phases - concrete enough that the arc feels fresh and distinct, but written as loose direction for another AI to improvise from in conversation, not as a scripted scene or dialogue. Also give it a short (under 8 words) title.${avoidBlock}`;
+}
+
+function generateStoryPremise({ worldProfile, pastTitles, cwd }) {
+  const args = [
+    '-p', buildPremisePrompt({ worldProfile, pastTitles }),
+    '--session-id', crypto.randomUUID(), // fresh, one-shot - never resumed
+    '--output-format', 'json',
+    '--json-schema', buildPremiseJsonSchema(),
+    '--tools', '',
+    '--strict-mcp-config',
+    '--model', MODEL,
+    '--fallback-model', MODEL,
+    '--max-budget-usd', MAX_BUDGET_USD,
+  ];
+
+  return new Promise((resolve) => {
+    execFile(
+      CLAUDE_BIN,
+      args,
+      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          console.error('[story premise] claude CLI failed:', err.message);
+          resolve(null);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout);
+          const structured = parsed.structured_output;
+          if (
+            structured &&
+            typeof structured.title === 'string' &&
+            typeof structured.opening === 'string' &&
+            typeof structured.escalation === 'string' &&
+            typeof structured.confrontation === 'string' &&
+            typeof structured.resolution === 'string'
+          ) {
+            resolve(structured);
+          } else {
+            console.error('[story premise] missing/invalid structured_output:', String(stdout).slice(0, 500));
+            resolve(null);
+          }
+        } catch (parseErr) {
+          console.error('[story premise] could not parse claude CLI output:', parseErr.message);
+          resolve(null);
+        }
+      }
+    );
+  });
+}
+
+module.exports = { askPet, generateStoryPremise, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };

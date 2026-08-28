@@ -52,9 +52,17 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
         .join('\n')}`
     : '';
 
-  const STORY_GUIDANCE = {
-    resting:
-      "Dino-Day isn't currently causing any trouble. Focus on ordinary daily life and friendships - hanging out with Kevin, Bob, and Stuart, checking in on Coco and Mochi being their usual lovey-dovey selves, Octu looking out for everyone, Po dreaming about kung fu between snacks. No need to mention Dino-Day at all unless the person brings him up.",
+  // Resting has no storyline of its own - always the same "nothing's going
+  // on" guidance, regardless of which arc premise is active or was used.
+  const RESTING_GUIDANCE =
+    "Dino-Day isn't currently causing any trouble. Focus on ordinary daily life and friendships - hanging out with Kevin, Bob, and Stuart, checking in on Coco and Mochi being their usual lovey-dovey selves, Octu looking out for everyone, Po dreaming about kung fu between snacks. No need to mention Dino-Day at all unless the person brings him up.";
+
+  // Guaranteed to be the very first arc this app ever runs (see
+  // story-arc.js's maybeGeneratePremise - premise generation is skipped
+  // entirely while cycleCount === 0), so this always happens, not just
+  // "probably, unless generation produces something else."
+  const FIRST_ARC_STORY = {
+    title: 'The Coronation of Dino-Day',
     opening:
       "Dino-Day has just shown back up, demanding admiration from everyone - maybe he's put up a statue of himself, started a mandatory fan club, or something in that spirit. He's begun individually pushing the friends around in small, selfish ways (making Bob carry things for him, forcing Kevin to build him a throne, guilt-tripping Octu into flattering him, raiding Po's snacks while mocking him). If it fits naturally today, mention a small development of this - you're annoyed and a little wary, but keep it mostly comedic still.",
     escalation:
@@ -65,10 +73,37 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
       "Dino-Day has just been humbled and driven off, storming away vowing he'll be back one day. Today is about celebrating with the friend group, everyone decompressing and reconnecting, and reflecting warmly on it all before things settle back to normal.",
   };
 
-  const storyBlock =
-    arcState && STORY_GUIDANCE[arcState.phase]
-      ? `\n\nCURRENT STORY (loose guidance, not a script - bring this in naturally if it fits the conversation, don't force it into every reply)\n${STORY_GUIDANCE[arcState.phase]}`
-      : '';
+  // Used from the second arc onward, only if that cycle's Claude-generated
+  // premise is missing or generation failed - a real, different storyline
+  // rather than repeating the first arc's plot verbatim.
+  const FALLBACK_STORY = {
+    title: 'The Dino-Day Talent Spectacular',
+    opening:
+      "Dino-Day has shown back up, declaring himself the forest's greatest performer and announcing a mandatory \"Dino-Day Talent Spectacular\" in his own honor - everyone is expected to attend and cheer. He's begun roping friends into helping him prepare in small, selfish ways (forcing Kevin to build him a stage, guilt-tripping Octu into being his hype crew, raiding Po's snacks for his greenroom spread). If it fits naturally today, mention a small development of this - you're annoyed and a little wary, but keep it mostly comedic still.",
+    escalation:
+      "To guarantee he 'wins' his own talent show, Dino-Day has sabotaged or stolen Stuart's beloved ukulele right before the show so nobody can possibly outshine his terrible performance. This is where he crosses a real line - Stuart is genuinely upset about it, and you should show real worry and protectiveness on his behalf, even while the specifics stay absurd (Dino-Day rehearsing an off-key solo, insisting on a one-dinosaur orchestra, and so on). If it fits today, advance this storyline a bit.",
+    confrontation:
+      "This is the showdown. The whole friend group is teaming up to get Stuart's ukulele back and expose Dino-Day's rigged show today - Kevin organizing the plan, Bob sneaking in cleverly, Coco and Mochi causing a distraction together instead of just hugging, Octu rallying the crowd, Po's inner hero coming out. Big, comedic climax energy. If it fits today, narrate some of this confrontation - and remember you've decked Dino-Day before hard enough to knock his front teeth out, so a triumphant, ridiculous moment like that is very in-character.",
+    resolution:
+      "Dino-Day has just been humiliated on his own stage and driven off, storming away vowing he'll be back one day. Stuart has his ukulele back, and today is about an actual real celebration/performance with the friend group, everyone decompressing and reconnecting, before things settle back to normal.",
+  };
+
+  // Prefers this cycle's Claude-generated premise (see story-arc.js) when
+  // present; otherwise falls back to the guaranteed first-arc story
+  // (cycleCount === 0) or the hand-written fallback story (any later arc
+  // where generation is missing/failed). Resting always uses its own fixed
+  // guidance regardless of premise/cycleCount.
+  function resolveStoryGuidance(state) {
+    if (!state || state.phase === 'resting') return { text: RESTING_GUIDANCE, title: null };
+    if (state.premise && state.premise[state.phase]) return { text: state.premise[state.phase], title: state.premise.title };
+    const defaultStory = state.cycleCount === 0 ? FIRST_ARC_STORY : FALLBACK_STORY;
+    return { text: defaultStory[state.phase], title: defaultStory.title };
+  }
+
+  const { text: storyText, title: storyTitle } = resolveStoryGuidance(arcState);
+  const storyBlock = arcState
+    ? `\n\nCURRENT STORY (loose guidance, not a script - bring this in naturally if it fits the conversation, don't force it into every reply)${storyTitle ? ` - "${storyTitle}"` : ''}\n${storyText}`
+    : '';
 
   const todayLines = [];
   if (isRedPandaDayToday(now)) {

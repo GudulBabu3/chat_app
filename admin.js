@@ -33,12 +33,24 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
+const fs = require('fs');
 const { MongoClient } = require('mongodb');
-const { loadProfile } = require('./persona');
+const { loadProfile, loadWorldProfile } = require('./persona');
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
 const { PUSH_ENABLED } = require('./push-sender');
 const { notifyLiveServer } = require('./notify-live');
+const { generateStoryPremise } = require('./claude-bridge');
+
+// Same idea as server.js/nudge-scheduler.js/story-scheduler.js: give the
+// claude CLI its own empty scratch directory.
+const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
+if (!fs.existsSync(CLAUDE_CWD)) fs.mkdirSync(CLAUDE_CWD, { recursive: true });
+
+function generatePremise({ pastTitles }) {
+  const worldProfile = loadWorldProfile();
+  return generateStoryPremise({ worldProfile, pastTitles, cwd: CLAUDE_CWD });
+}
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
@@ -204,12 +216,17 @@ async function main() {
           if (state.phase !== 'resting') {
             console.log(`An arc is already in progress (phase: ${state.phase}). Use "arc reset" first if you want to force a restart.`);
           } else {
-            const newState = await storyArc.forceAdvance(storyArcCollection);
+            if (state.cycleCount > 0) console.log('Generating a fresh story premise via Claude (this can take a few seconds)...');
+            const newState = await storyArc.forceAdvance(storyArcCollection, new Date(), { generatePremise });
             console.log(`Started a new arc - phase is now "${newState.phase}".`);
+            if (newState.premise) console.log(`Generated premise: "${newState.premise.title}"`);
           }
         } else if (sub === 'skip') {
-          const newState = await storyArc.forceAdvance(storyArcCollection);
+          const before = await storyArc.getArcState(storyArcCollection);
+          if (before.phase === 'resting' && before.cycleCount > 0) console.log('Generating a fresh story premise via Claude (this can take a few seconds)...');
+          const newState = await storyArc.forceAdvance(storyArcCollection, new Date(), { generatePremise });
           console.log(`Advanced the arc - phase is now "${newState.phase}".`);
+          if (newState.premise && before.phase === 'resting') console.log(`Generated premise: "${newState.premise.title}"`);
         } else if (sub === 'reset') {
           await storyArc.resetToResting(storyArcCollection);
           console.log('Arc reset to resting.');
