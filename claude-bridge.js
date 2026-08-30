@@ -7,6 +7,19 @@
 const { execFile } = require('child_process');
 const { execFileSync } = require('child_process');
 const crypto = require('crypto');
+const { PHASE_DAY_RANGE } = require('./story-arc');
+
+// Max possible length of each phase (the upper end of story-arc.js's
+// PHASE_DAY_RANGE) - how many day-by-day beats to ask Claude to generate
+// per phase when inventing a premise. A given cycle's actual phase length
+// is randomized within that range and may end up shorter, in which case
+// the trailing beats simply go unused - see persona.js's dayIndexInPhase.
+const MAX_PHASE_DAYS = {
+  opening: PHASE_DAY_RANGE.opening[1],
+  escalation: PHASE_DAY_RANGE.escalation[1],
+  confrontation: PHASE_DAY_RANGE.confrontation[1],
+  resolution: PHASE_DAY_RANGE.resolution[1],
+};
 
 const CALL_TIMEOUT_MS = 60_000;
 const MAX_BUDGET_USD = '0.50';
@@ -176,22 +189,30 @@ function askPet({ sessionId, isFirstTurn, userMessage, systemPrompt, cwd, allowe
 // Returns null (never throws) on any failure - callers should treat that as
 // "no premise this time" and fall back to hand-written default content,
 // rather than letting a network/CLI hiccup break the story feature.
-function buildPremiseJsonSchema() {
+// Each phase field is now an array of day-by-day beats (one entry per
+// possible day the phase could run, per MAX_PHASE_DAYS above) instead of a
+// single static block of guidance - so a phase that runs several days
+// (e.g. escalation, 3-5 days) has genuinely different, progressing content
+// for each day instead of the same guidance repeated. Exact-length arrays
+// so the CLI enforces the count itself rather than hoping the model
+// produces enough.
+function buildPremiseJsonSchema(maxDays) {
+  const dayArray = (n) => ({ type: 'array', items: { type: 'string' }, minItems: n, maxItems: n });
   return JSON.stringify({
     type: 'object',
     properties: {
       title: { type: 'string' },
-      opening: { type: 'string' },
-      escalation: { type: 'string' },
-      confrontation: { type: 'string' },
-      resolution: { type: 'string' },
+      opening: dayArray(maxDays.opening),
+      escalation: dayArray(maxDays.escalation),
+      confrontation: dayArray(maxDays.confrontation),
+      resolution: dayArray(maxDays.resolution),
     },
     required: ['title', 'opening', 'escalation', 'confrontation', 'resolution'],
     additionalProperties: false,
   });
 }
 
-function buildPremisePrompt({ worldProfile, pastTitles }) {
+function buildPremisePrompt({ worldProfile, pastTitles, maxDays }) {
   const villain = worldProfile.villain;
   const friendLines = (worldProfile.friends || [])
     .map((f) => `- ${f.name} (${f.species}${f.role ? `, ${f.role}` : ''}): ${f.personality.join(', ')}${f.partner ? ` - paired up with ${f.partner}` : ''}`)
@@ -207,21 +228,31 @@ VILLAIN: ${villain.name}, a ${villain.species}. ${villain.appearance}. Personali
 FRIEND GROUP (TukuruMukuru's friends - draw on these, especially for who gets targeted in the escalation beat):
 ${friendLines}
 
-The arc always has this same four-part shape, but you invent the specific plot each time:
-- OPENING: the villain reappears, demanding admiration in some new specific way, and starts individually pushing one or more friends around in small selfish ways. Comedic, not yet alarming.
-- ESCALATION: his scheme gets pettier and more selfish, and MUST include one specific, genuinely mean/hurtful beat targeting one particular friend by name (not just generic annoyance) - something that would make TukuruMukuru truly worried and protective, while the overall situation stays absurd/comedic in its specifics.
-- CONFRONTATION: the whole friend group teams up against him for a big, comedic climactic showdown.
-- RESOLUTION: he's humbled and driven off, vowing to return; the group celebrates and reconnects.
+The arc always has this same four-part shape, but you invent the specific plot each time. Crucially, each phase can run several days in a row, and it must NOT feel like the same static situation repeated every day - write each phase as a DAY-BY-DAY PROGRESSION where every entry is a distinct, concrete new development that clearly moves the plot forward from the entry before it (day 2 builds on day 1's specific event, references what already happened, and escalates or complicates it - never just restates day 1 in different words):
 
-Write 2-4 sentences of specific narrative direction for each of the four phases - concrete enough that the arc feels fresh and distinct, but written as loose direction for another AI to improvise from in conversation, not as a scripted scene or dialogue. Also give it a short (under 8 words) title.${avoidBlock}`;
+- OPENING (exactly ${maxDays.opening} day-by-day entries): the villain reappears, demanding admiration in some new specific way, and starts individually pushing one or more friends around in small selfish ways - each day a new small incident, building up. Comedic, not yet alarming.
+- ESCALATION (exactly ${maxDays.escalation} day-by-day entries): his scheme gets pettier and more selfish day by day, and the entries together MUST build to one specific, genuinely mean/hurtful beat targeting one particular friend by name (not just generic annoyance) by the final entry - something that would make TukuruMukuru truly worried and protective, while the overall situation stays absurd/comedic in its specifics.
+- CONFRONTATION (exactly ${maxDays.confrontation} day-by-day entries): the whole friend group's plan against him unfolds and escalates day by day into a big, comedic climactic showdown by the final entry.
+- RESOLUTION (exactly ${maxDays.resolution} day-by-day entries): he's humbled and driven off, vowing to return; the day-by-day entries cover the immediate aftermath through the group celebrating and reconnecting.
+
+Each entry: 1-3 sentences, specific and concrete, written as loose direction for another AI to improvise dialogue from in conversation - not a scripted scene or dialogue itself. Also give the whole arc a short (under 8 words) title.${avoidBlock}`;
 }
 
-function generateStoryPremise({ worldProfile, pastTitles, cwd }) {
+// A phase field is valid if it's a non-empty array of non-empty strings -
+// tolerant of the model coming up slightly short on count (still usable,
+// see persona.js's clamping) rather than requiring an exact match to
+// MAX_PHASE_DAYS, so a minor generation shortfall doesn't discard an
+// otherwise-good premise.
+function isValidBeatArray(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string' && v.trim());
+}
+
+function generateStoryPremise({ worldProfile, pastTitles, cwd, maxDays = MAX_PHASE_DAYS }) {
   const args = [
-    '-p', buildPremisePrompt({ worldProfile, pastTitles }),
+    '-p', buildPremisePrompt({ worldProfile, pastTitles, maxDays }),
     '--session-id', crypto.randomUUID(), // fresh, one-shot - never resumed
     '--output-format', 'json',
-    '--json-schema', buildPremiseJsonSchema(),
+    '--json-schema', buildPremiseJsonSchema(maxDays),
     '--tools', '',
     '--strict-mcp-config',
     '--model', MODEL,
@@ -246,10 +277,10 @@ function generateStoryPremise({ worldProfile, pastTitles, cwd }) {
           if (
             structured &&
             typeof structured.title === 'string' &&
-            typeof structured.opening === 'string' &&
-            typeof structured.escalation === 'string' &&
-            typeof structured.confrontation === 'string' &&
-            typeof structured.resolution === 'string'
+            isValidBeatArray(structured.opening) &&
+            isValidBeatArray(structured.escalation) &&
+            isValidBeatArray(structured.confrontation) &&
+            isValidBeatArray(structured.resolution)
           ) {
             resolve(structured);
           } else {

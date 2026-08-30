@@ -227,4 +227,4 @@ async function resetToResting(storyArcCollection, now = new Date()) {
   return newState;
 }
 
-module.exports = { getArcState, advanceArcIfDue, forceAdvance, resetToResting, PHASE_ORDER };
+module.exports = { getArcState, advanceArcIfDue, forceAdvance, resetToResting, PHASE_ORDER, PHASE_DAY_RANGE };

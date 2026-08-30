@@ -61,16 +61,35 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
   // story-arc.js's maybeGeneratePremise - premise generation is skipped
   // entirely while cycleCount === 0), so this always happens, not just
   // "probably, unless generation produces something else."
+  // Each phase is now a day-by-day array of beats (see resolveStoryGuidance
+  // below) instead of one static block, so a phase that runs several days
+  // (e.g. escalation) has genuinely new content each day instead of the
+  // same guidance repeated. Length matches story-arc.js's PHASE_DAY_RANGE
+  // max for that phase (opening 4, escalation 5, confrontation 3, resolution 3).
   const FIRST_ARC_STORY = {
     title: 'The Coronation of Dino-Day',
-    opening:
-      "Dino-Day has just shown back up, demanding admiration from everyone - maybe he's put up a statue of himself, started a mandatory fan club, or something in that spirit. He's begun individually pushing the friends around in small, selfish ways (making Bob carry things for him, forcing Kevin to build him a throne, guilt-tripping Octu into flattering him, raiding Po's snacks while mocking him). If it fits naturally today, mention a small development of this - you're annoyed and a little wary, but keep it mostly comedic still.",
-    escalation:
-      "Dino-Day has declared himself ruler of the forest and is demanding a big coronation/tribute event in his honor. To force everyone to go along with it, he's taken Bob's teddy bear hostage until people bow to him. This is where he crosses a real line - it's genuinely upsetting, not just annoying, and you should show real worry and protectiveness about Bob, even while the situation stays absurd (a giant dinosaur guarding one small teddy bear, forcing bows every time his name is said, renaming the forest after himself, and so on). If it fits today, advance this storyline a bit.",
-    confrontation:
-      "This is the showdown. The whole friend group is teaming up against Dino-Day today - Kevin leading a plan, Stuart running interference, Bob finding an unexpectedly clever way to help, Coco and Mochi actually working together instead of just hugging, Octu rallying everyone's spirits, Po's inner hero coming out. Big, comedic climax energy. If it fits today, narrate some of this confrontation - and remember you've decked Dino-Day before hard enough to knock his front teeth out, so a triumphant, ridiculous moment like that is very in-character.",
-    resolution:
-      "Dino-Day has just been humbled and driven off, storming away vowing he'll be back one day. Today is about celebrating with the friend group, everyone decompressing and reconnecting, and reflecting warmly on it all before things settle back to normal.",
+    opening: [
+      "Dino-Day has just shown back up, putting up a big self-portrait statue in the middle of the forest and announcing everyone must admire it. He's making Bob carry the paint buckets for him. You're annoyed and a little wary, but keep it mostly comedic still.",
+      "Dino-Day has started a mandatory \"Dino-Day Fan Club\" and is forcing Kevin to build him a throne out of branches, insisting it needs to be taller by the hour.",
+      "Dino-Day guilt-tripped Octu into writing him a flattering poem and reciting it on demand, and he's started raiding Po's snack stash \"as tribute\" while mocking his kung-fu dreams.",
+      "Dino-Day has started demanding everyone bow whenever his name is said, practicing on the friend group like it's a new forest law. It's getting less funny and more grating.",
+    ],
+    escalation: [
+      "Dino-Day has declared himself ruler of the forest and announced a big coronation/tribute event in his honor, expecting everyone to organize it for him.",
+      "To force compliance, Dino-Day has taken Bob's teddy bear and is holding it hostage in his \"throne room\" until everyone agrees to bow. Bob is visibly upset, and you're genuinely worried and protective of him now - this isn't funny anymore, even though Dino-Day guarding one small teddy bear is absurd.",
+      "Dino-Day has started renaming parts of the forest after himself and is refusing to give the teddy bear back even after friends tried reasoning with him, doubling down instead.",
+      "Word is spreading that Dino-Day plans to make the \"forced bowing\" permanent after the coronation, not just for the event - which is what tips the group from annoyed to done putting up with it.",
+    ],
+    confrontation: [
+      "The whole friend group has started actually plotting against Dino-Day today - Kevin leading the plan, everyone picking their part.",
+      "The plan is in motion: Stuart runs interference, Bob finds an unexpectedly clever way to sneak in and grab the teddy bear back, Coco and Mochi actually work together instead of just hugging, and Octu rallies everyone's spirits.",
+      "Big climax moment - Po's inner hero comes out and Dino-Day gets decked hard enough to send his front teeth flying again, the whole group cheering as Bob gets his teddy bear back.",
+    ],
+    resolution: [
+      "Dino-Day has just been humbled and driven off, storming away vowing he'll be back one day. Right now it's all relief and adrenaline settling down with the group.",
+      "Today is about actually celebrating with the friend group - decompressing, reconnecting, maybe a proper little party, everyone still riding the high of the win.",
+      "Things are properly settling back to normal now, warm and easy, with maybe one last fond/funny callback to how ridiculous the whole coronation thing was.",
+    ],
   };
 
   // Used from the second arc onward, only if that cycle's Claude-generated
@@ -78,31 +97,75 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
   // rather than repeating the first arc's plot verbatim.
   const FALLBACK_STORY = {
     title: 'The Dino-Day Talent Spectacular',
-    opening:
-      "Dino-Day has shown back up, declaring himself the forest's greatest performer and announcing a mandatory \"Dino-Day Talent Spectacular\" in his own honor - everyone is expected to attend and cheer. He's begun roping friends into helping him prepare in small, selfish ways (forcing Kevin to build him a stage, guilt-tripping Octu into being his hype crew, raiding Po's snacks for his greenroom spread). If it fits naturally today, mention a small development of this - you're annoyed and a little wary, but keep it mostly comedic still.",
-    escalation:
-      "To guarantee he 'wins' his own talent show, Dino-Day has sabotaged or stolen Stuart's beloved ukulele right before the show so nobody can possibly outshine his terrible performance. This is where he crosses a real line - Stuart is genuinely upset about it, and you should show real worry and protectiveness on his behalf, even while the specifics stay absurd (Dino-Day rehearsing an off-key solo, insisting on a one-dinosaur orchestra, and so on). If it fits today, advance this storyline a bit.",
-    confrontation:
-      "This is the showdown. The whole friend group is teaming up to get Stuart's ukulele back and expose Dino-Day's rigged show today - Kevin organizing the plan, Bob sneaking in cleverly, Coco and Mochi causing a distraction together instead of just hugging, Octu rallying the crowd, Po's inner hero coming out. Big, comedic climax energy. If it fits today, narrate some of this confrontation - and remember you've decked Dino-Day before hard enough to knock his front teeth out, so a triumphant, ridiculous moment like that is very in-character.",
-    resolution:
-      "Dino-Day has just been humiliated on his own stage and driven off, storming away vowing he'll be back one day. Stuart has his ukulele back, and today is about an actual real celebration/performance with the friend group, everyone decompressing and reconnecting, before things settle back to normal.",
+    opening: [
+      "Dino-Day has shown back up, declaring himself the forest's greatest performer and announcing a mandatory \"Dino-Day Talent Spectacular\" in his own honor. He's forcing Kevin to build him a stage, insisting it needs to be bigger.",
+      "Dino-Day has guilt-tripped Octu into being his personal hype crew, making her practice chanting his name on cue.",
+      "Dino-Day is raiding Po's snack stash for his \"greenroom spread,\" complaining the whole time that none of it is fancy enough for a star like him.",
+      "Dino-Day has started handing out mandatory tickets to his own show and telling everyone rehearsals for HIS act take priority over anything else going on this week.",
+    ],
+    escalation: [
+      "Dino-Day has started worrying someone might actually outshine him at his own talent show, and he's been eyeing Stuart's ukulele playing a little too closely.",
+      "Dino-Day has sabotaged Stuart's beloved ukulele right before the show so nobody can possibly outshine his terrible performance. Stuart is genuinely upset about it, and you're worried and protective of him now - this stopped being funny.",
+      "Dino-Day is rehearsing an off-key solo and insisting on a one-dinosaur orchestra, refusing to even discuss fixing or returning Stuart's ukulele.",
+      "Dino-Day has announced he's the only act allowed to perform at his own show now, cutting everyone else's planned acts - which is what tips the group from annoyed to done putting up with it.",
+    ],
+    confrontation: [
+      "The whole friend group has started actually plotting to get Stuart's ukulele back and expose Dino-Day's rigged show today - Kevin organizing the plan.",
+      "The plan is in motion: Bob sneaks in cleverly backstage, Coco and Mochi cause a distraction together instead of just hugging, and Octu rallies the crowd against the rigged show.",
+      "Big climax moment on Dino-Day's own stage - Po's inner hero comes out, Dino-Day gets decked hard enough to send his front teeth flying again, and Stuart gets his ukulele back to a cheering crowd.",
+    ],
+    resolution: [
+      "Dino-Day has just been humiliated on his own stage and driven off, storming away vowing he'll be back one day. Stuart has his ukulele back, and right now it's all relief and adrenaline settling down with the group.",
+      "Today is about an actual real celebration/performance with the friend group - Stuart maybe even playing a proper song this time, everyone decompressing and reconnecting.",
+      "Things are properly settling back to normal now, warm and easy, with maybe one last fond/funny callback to how ridiculous the whole \"talent spectacular\" was.",
+    ],
   };
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  // Which day-within-the-current-phase we're on (0-based), so a phase that
+  // spans several days (e.g. escalation, 3-5 days) surfaces a different
+  // beat each day instead of the same static guidance repeated - this is
+  // the whole point of the day-by-day beat arrays below and in
+  // story-arc.js-generated premises. Clamped at 0 if phaseStartedAt is
+  // missing (shouldn't happen for an active phase, but don't crash).
+  function dayIndexInPhase(phaseStartedAt, now) {
+    if (!phaseStartedAt) return 0;
+    const elapsedDays = Math.floor((now.getTime() - new Date(phaseStartedAt).getTime()) / DAY_MS);
+    return Math.max(0, elapsedDays);
+  }
+
+  // Picks today's beat out of a phase's day-by-day array, clamping to the
+  // last entry if we're further into the phase than the array has entries
+  // for (e.g. a generated premise came up a day short, or the phase's
+  // randomized actual length landed past its own array).
+  function pickBeat(beats, dayIndex) {
+    if (!Array.isArray(beats) || beats.length === 0) return null;
+    return beats[Math.min(dayIndex, beats.length - 1)];
+  }
 
   // Prefers this cycle's Claude-generated premise (see story-arc.js) when
   // present; otherwise falls back to the guaranteed first-arc story
   // (cycleCount === 0) or the hand-written fallback story (any later arc
   // where generation is missing/failed). Resting always uses its own fixed
-  // guidance regardless of premise/cycleCount.
-  function resolveStoryGuidance(state) {
+  // guidance regardless of premise/cycleCount. Within whichever story is in
+  // play, picks today's specific beat via dayIndexInPhase/pickBeat so the
+  // guidance actually changes every day the phase runs, not just once per
+  // multi-day phase.
+  function resolveStoryGuidance(state, now) {
     if (!state || state.phase === 'resting') return { text: RESTING_GUIDANCE, title: null };
-    if (state.premise && state.premise[state.phase]) return { text: state.premise[state.phase], title: state.premise.title };
+    const dayIndex = dayIndexInPhase(state.phaseStartedAt, now);
+    if (state.premise) {
+      const beat = pickBeat(state.premise[state.phase], dayIndex);
+      if (beat) return { text: beat, title: state.premise.title };
+    }
     const defaultStory = state.cycleCount === 0 ? FIRST_ARC_STORY : FALLBACK_STORY;
-    return { text: defaultStory[state.phase], title: defaultStory.title };
+    return { text: pickBeat(defaultStory[state.phase], dayIndex), title: defaultStory.title };
   }
 
-  const { text: storyText, title: storyTitle } = resolveStoryGuidance(arcState);
+  const { text: storyText, title: storyTitle } = resolveStoryGuidance(arcState, now);
   const storyBlock = arcState
-    ? `\n\nCURRENT STORY (loose guidance, not a script - bring this in naturally if it fits the conversation, don't force it into every reply)${storyTitle ? ` - "${storyTitle}"` : ''}\n${storyText}`
+    ? `\n\nCURRENT STORY (today's specific beat - loose guidance, not a script - bring this in naturally if it fits the conversation, don't force it into every reply)${storyTitle ? ` - "${storyTitle}"` : ''}\n${storyText}`
     : '';
 
   const todayLines = [];
