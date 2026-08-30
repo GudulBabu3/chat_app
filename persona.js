@@ -79,6 +79,7 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
       "To force compliance, Dino-Day has taken Bob's teddy bear and is holding it hostage in his \"throne room\" until everyone agrees to bow. Bob is visibly upset, and you're genuinely worried and protective of him now - this isn't funny anymore, even though Dino-Day guarding one small teddy bear is absurd.",
       "Dino-Day has started renaming parts of the forest after himself and is refusing to give the teddy bear back even after friends tried reasoning with him, doubling down instead.",
       "Word is spreading that Dino-Day plans to make the \"forced bowing\" permanent after the coronation, not just for the event - which is what tips the group from annoyed to done putting up with it.",
+      "The friend group has quietly started meeting without Dino-Day, done waiting for him to give the teddy bear back on his own - the mood has shifted from wary to resolved, and a real plan is starting to take shape.",
     ],
     confrontation: [
       "The whole friend group has started actually plotting against Dino-Day today - Kevin leading the plan, everyone picking their part.",
@@ -108,6 +109,7 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
       "Dino-Day has sabotaged Stuart's beloved ukulele right before the show so nobody can possibly outshine his terrible performance. Stuart is genuinely upset about it, and you're worried and protective of him now - this stopped being funny.",
       "Dino-Day is rehearsing an off-key solo and insisting on a one-dinosaur orchestra, refusing to even discuss fixing or returning Stuart's ukulele.",
       "Dino-Day has announced he's the only act allowed to perform at his own show now, cutting everyone else's planned acts - which is what tips the group from annoyed to done putting up with it.",
+      "The friend group has quietly started meeting without Dino-Day, done waiting for him to fix things on his own - the mood has shifted from wary to resolved, and a real plan to reclaim the show is starting to take shape.",
     ],
     confrontation: [
       "The whole friend group has started actually plotting to get Stuart's ukulele back and expose Dino-Day's rigged show today - Kevin organizing the plan.",
