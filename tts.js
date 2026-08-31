@@ -21,6 +21,17 @@ const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION || '';
 const AZURE_TTS_VOICE = process.env.AZURE_TTS_VOICE || 'en-US-JennyNeural';
 const TTS_ENABLED = Boolean(AZURE_SPEECH_KEY && AZURE_SPEECH_REGION);
 
+// Applied on top of every sticker's rate/pitch below, regardless of mood -
+// this is what pushes the voice from "professional narrator" toward
+// "small, quick, animated creature". Jenny (or any adult neural voice) reads
+// as noticeably more youthful/cartoonish with a moderate pitch lift plus a
+// slightly faster baseline; push much past ~20% pitch and neural voices
+// start to show artifacts, so this stays in the "safe" range rather than
+// going full chipmunk. Tune these two numbers first before reaching for a
+// different voice or heavier per-emotion changes.
+const BASE_PITCH_PERCENT = 12;
+const BASE_RATE_PERCENT = 6;
+
 // style/styledegree are Azure's mstts:express-as values (JennyNeural
 // supports: angry, cheerful, sad, excited, friendly, terrified, shouting,
 // unfriendly, whispering, hopeful, plus a few assistant/chat/newscast ones
@@ -31,15 +42,15 @@ const STICKER_VOICE_STYLE = {
   neutral: { style: null, rate: '0%', pitch: '+0%' },
   greeting: { style: 'friendly', styledegree: 1.1, rate: '+5%', pitch: '+3%' },
   curious: { style: 'friendly', styledegree: 0.9, rate: '+2%', pitch: '+6%' },
-  playful: { style: 'cheerful', styledegree: 1.3, rate: '+8%', pitch: '+5%' },
-  excited: { style: 'excited', styledegree: 1.5, rate: '+12%', pitch: '+8%' },
+  playful: { style: 'cheerful', styledegree: 1.6, rate: '+8%', pitch: '+5%' },
+  excited: { style: 'excited', styledegree: 1.8, rate: '+12%', pitch: '+8%' },
   affectionate: { style: 'friendly', styledegree: 0.8, rate: '-5%', pitch: '-2%' },
   sleepy: { style: null, rate: '-15%', pitch: '-6%' },
   napping: { style: 'whispering', rate: '-20%', pitch: '-8%' },
   hungry: { style: 'cheerful', styledegree: 0.7, rate: '+3%', pitch: '+2%' },
-  startled: { style: 'excited', styledegree: 1.2, rate: '+15%', pitch: '+10%' },
+  startled: { style: 'excited', styledegree: 1.4, rate: '+15%', pitch: '+10%' },
   annoyed: { style: 'unfriendly', styledegree: 0.7, rate: '+2%', pitch: '-3%' },
-  laughing: { style: 'cheerful', styledegree: 1.4, rate: '+10%', pitch: '+6%' },
+  laughing: { style: 'cheerful', styledegree: 1.7, rate: '+10%', pitch: '+6%' },
   sad: { style: 'sad', styledegree: 1.0, rate: '-10%', pitch: '-5%' },
 };
 const DEFAULT_VOICE_STYLE = STICKER_VOICE_STYLE.neutral;
@@ -53,10 +64,24 @@ function escapeSsml(text) {
     .replace(/'/g, '&apos;');
 }
 
+// "+8%" -> 8, "-5%" -> -5, missing/malformed -> 0.
+function parsePercent(value) {
+  const n = parseInt(String(value || '').replace('%', ''), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatPercent(n) {
+  return `${n >= 0 ? '+' : ''}${n}%`;
+}
+
 function buildSsml(text, sticker) {
   const cfg = STICKER_VOICE_STYLE[sticker] || DEFAULT_VOICE_STYLE;
   const escaped = escapeSsml(text);
-  const prosodyEl = `<prosody rate="${cfg.rate || '0%'}" pitch="${cfg.pitch || '+0%'}">${escaped}</prosody>`;
+  // Base pitch/rate lift (see BASE_PITCH_PERCENT/BASE_RATE_PERCENT above)
+  // stacks additively with this mood's own rate/pitch nudge.
+  const finalRate = formatPercent(parsePercent(cfg.rate) + BASE_RATE_PERCENT);
+  const finalPitch = formatPercent(parsePercent(cfg.pitch) + BASE_PITCH_PERCENT);
+  const prosodyEl = `<prosody rate="${finalRate}" pitch="${finalPitch}">${escaped}</prosody>`;
   const voiceInner = cfg.style
     ? `<mstts:express-as style="${cfg.style}"${cfg.styledegree ? ` styledegree="${cfg.styledegree}"` : ''}>${prosodyEl}</mstts:express-as>`
     : prosodyEl;
