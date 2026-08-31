@@ -102,16 +102,18 @@ button:disabled { opacity: 0.6; cursor: default; }
 .inline-form input { flex: 1; min-width: 160px; }
 .add-form { margin-top: 4px; }
 
-.user-table { display: flex; flex-direction: column; gap: 6px; font-size: 13px; max-height: 220px; overflow-y: auto; }
+.user-table { display: flex; flex-direction: column; gap: 6px; font-size: 13px; max-height: 220px; overflow-y: auto; margin-bottom: 14px; }
 .user-row {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   padding: 6px 10px;
   background: #1b120c;
   border-radius: 8px;
 }
-.user-row .joined { color: #c8a98b; font-size: 12px; }
+.user-row .username { flex: 1; word-break: break-word; }
+.user-row .joined { color: #c8a98b; font-size: 12px; flex-shrink: 0; }
+.row-delete-btn { padding: 4px 10px; font-size: 12px; flex-shrink: 0; }
 
 .extras-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 @media (max-width: 640px) {

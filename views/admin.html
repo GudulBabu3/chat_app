@@ -46,6 +46,12 @@
       <section class="card">
         <h2>Users</h2>
         <div id="users-list" class="user-table">Loading…</div>
+        <form id="create-user-form" class="inline-form add-form">
+          <input id="new-username" placeholder="New username" autocomplete="off" required />
+          <input id="new-password" type="password" placeholder="Password (min 8 chars)" autocomplete="new-password" required minlength="8" />
+          <button type="submit">Add / update user</button>
+        </form>
+        <p class="hint">Using an existing username just resets that user's password - matches how create-user.js behaves over SSH.</p>
       </section>
 
       <section class="card">

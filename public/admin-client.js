@@ -119,14 +119,42 @@ async function loadUsers() {
   const datalist = document.getElementById('user-list');
   datalist.innerHTML = data.users.map((u) => `<option value="${u.username}"></option>`).join('');
 
+  listEl.innerHTML = '';
   if (!data.users.length) {
     listEl.textContent = 'No users yet.';
     return;
   }
-  const rows = data.users
-    .map((u) => `<div class="user-row"><span class="username">${u.username}</span><span class="joined">${u.createdAt ? `joined ${fmtDate(u.createdAt)}` : ''}</span></div>`)
-    .join('');
-  listEl.innerHTML = rows;
+  data.users.forEach((u) => {
+    const row = document.createElement('div');
+    row.className = 'user-row';
+
+    const info = document.createElement('span');
+    info.className = 'username';
+    info.textContent = u.username;
+
+    const joined = document.createElement('span');
+    joined.className = 'joined';
+    joined.textContent = u.createdAt ? `joined ${fmtDate(u.createdAt)}` : '';
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'confirm-btn danger row-delete-btn';
+    delBtn.textContent = 'Delete';
+    wireConfirmButton(
+      delBtn,
+      async () => {
+        await api('/admin/api/users/delete', { method: 'POST', body: { username: u.username } });
+        toast(`Deleted "${u.username}".`);
+        await refreshAll();
+      },
+      'Confirm delete?'
+    );
+
+    row.appendChild(info);
+    row.appendChild(joined);
+    row.appendChild(delBtn);
+    listEl.appendChild(row);
+  });
 }
 
 function refreshAll() {
@@ -147,6 +175,30 @@ document.getElementById('send-form').addEventListener('submit', async (e) => {
     await api('/admin/api/send', { method: 'POST', body: { username, message, sticker } });
     toast(`Sent to ${username}.`);
     document.getElementById('send-message').value = '';
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// --- Create / update user ---
+document.getElementById('create-user-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const usernameInput = document.getElementById('new-username');
+  const passwordInput = document.getElementById('new-password');
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
+  if (!username || !password) return;
+
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    const data = await api('/admin/api/users/create', { method: 'POST', body: { username, password } });
+    toast(data.message || 'Saved.');
+    usernameInput.value = '';
+    passwordInput.value = '';
+    await loadUsers();
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -203,8 +255,11 @@ document.getElementById('special-clear-btn').addEventListener('click', async () 
   }
 });
 
-// --- Story arc: two-click arm/confirm, no native dialogs ---
-document.querySelectorAll('.confirm-btn').forEach((btn) => {
+// Reusable two-click arm/confirm pattern for a "dangerous" button - no
+// native confirm()/alert() dialogs (they block the whole tab). First click
+// arms it (relabels + highlights, auto-disarms after 4s); second click
+// within that window runs onConfirm().
+function wireConfirmButton(btn, onConfirm, confirmLabel = 'Click again to confirm') {
   const originalLabel = btn.textContent;
   let armed = false;
   let armTimer = null;
@@ -213,7 +268,7 @@ document.querySelectorAll('.confirm-btn').forEach((btn) => {
     if (!armed) {
       armed = true;
       btn.classList.add('armed');
-      btn.textContent = 'Click again to confirm';
+      btn.textContent = confirmLabel;
       armTimer = setTimeout(() => {
         armed = false;
         btn.classList.remove('armed');
@@ -227,14 +282,21 @@ document.querySelectorAll('.confirm-btn').forEach((btn) => {
     btn.textContent = originalLabel;
     btn.disabled = true;
     try {
-      await api(`/admin/api/arc/${btn.dataset.action}`, { method: 'POST' });
-      toast('Story arc updated.');
-      await loadStatus();
+      await onConfirm();
     } catch (err) {
       toast(err.message, 'error');
     } finally {
       btn.disabled = false;
     }
+  });
+}
+
+// --- Story arc: two-click arm/confirm, no native dialogs ---
+document.querySelectorAll('.confirm-btn[data-action]').forEach((btn) => {
+  wireConfirmButton(btn, async () => {
+    await api(`/admin/api/arc/${btn.dataset.action}`, { method: 'POST' });
+    toast('Story arc updated.');
+    await loadStatus();
   });
 });
 

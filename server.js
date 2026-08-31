@@ -12,7 +12,7 @@ const { MongoClient, ObjectId } = require('mongodb');
 
 const { loadProfile, loadWorldProfile, buildSystemPrompt } = require('./persona');
 const { askPet, generateStoryPremise } = require('./claude-bridge');
-const { verifyPassword, isRateLimited, recordAttempt, clearAttempts } = require('./auth');
+const { hashPassword, verifyPassword, isRateLimited, recordAttempt, clearAttempts } = require('./auth');
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushToUser } = require('./push-sender');
@@ -369,6 +369,58 @@ async function start() {
       .sort({ username: 1 })
       .toArray();
     res.json({ ok: true, users: users.map((u) => ({ username: u.username, createdAt: u.createdAt || null })) });
+  });
+
+  // Same trust model/behavior as create-user.js: creates a fresh login, or
+  // just resets the password if the username already exists.
+  app.post('/admin/api/users/create', requireAdminApi, async (req, res) => {
+    const username = String((req.body || {}).username || '').trim().toLowerCase();
+    const { password } = req.body || {};
+    if (!username) return res.status(400).json({ ok: false, error: 'username is required.' });
+    if (!password || password.length < 8) {
+      return res.status(400).json({ ok: false, error: 'Password must be at least 8 characters.' });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const existing = await usersCollection.findOne({ username });
+    if (existing) {
+      await usersCollection.updateOne({ username }, { $set: { passwordHash } });
+      return res.json({ ok: true, message: `Updated password for existing user "${username}".` });
+    }
+    await usersCollection.insertOne({
+      username,
+      passwordHash,
+      claudeSessionId: null,
+      hasClaudeSession: false,
+      createdAt: new Date(),
+    });
+    res.json({ ok: true, message: `Created new user "${username}".` });
+  });
+
+  // Deletes the user's login plus their chat history and push subscriptions,
+  // and kicks any open tab of theirs so it doesn't sit around half-working.
+  app.post('/admin/api/users/delete', requireAdminApi, async (req, res) => {
+    const username = String((req.body || {}).username || '').trim().toLowerCase();
+    if (!username) return res.status(400).json({ ok: false, error: 'username is required.' });
+
+    const user = await usersCollection.findOne({ username });
+    if (!user) return res.status(404).json({ ok: false, error: `No user found with username "${username}".` });
+    const userId = user._id.toString();
+
+    await usersCollection.deleteOne({ _id: user._id });
+    await messagesCollection.deleteMany({ userId });
+    await pushSubscriptionsCollection.deleteMany({ userId });
+
+    const sockets = userSockets.get(userId);
+    if (sockets) {
+      for (const s of sockets) {
+        s.emit('auth-error', 'This account was removed.');
+        s.disconnect(true);
+      }
+      userSockets.delete(userId);
+    }
+
+    res.json({ ok: true, message: `Deleted user "${username}" and their messages.` });
   });
 
   app.post('/admin/api/send', requireAdminApi, async (req, res) => {
