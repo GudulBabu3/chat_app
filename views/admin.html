@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin panel - TukuruMukuru</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32" />
+<link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+  <div id="admin-screen">
+    <header>
+      <div class="avatar">🛠️</div>
+      <div class="header-text">
+        <h1 id="pet-name">Admin panel</h1>
+        <span id="status-line">loading…</span>
+      </div>
+      <a class="ghost-btn" href="/">Open chat</a>
+      <button id="logout-btn" class="ghost-btn">Log out</button>
+    </header>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <main>
+      <section class="card">
+        <h2>Send a message as TukuruMukuru</h2>
+        <form id="send-form" class="stack">
+          <label>
+            Username
+            <input id="send-username" list="user-list" placeholder="e.g. shyamaluncle" autocomplete="off" required />
+            <datalist id="user-list"></datalist>
+          </label>
+          <label>
+            Message
+            <textarea id="send-message" rows="3" placeholder="What should TukuruMukuru say?" required></textarea>
+          </label>
+          <label>
+            Sticker
+            <select id="send-sticker"></select>
+          </label>
+          <button type="submit">Send</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Users</h2>
+        <div id="users-list" class="user-table">Loading…</div>
+      </section>
+
+      <section class="card">
+        <h2>Today's special</h2>
+        <p class="hint">TukuruMukuru naturally works this into conversation with anyone who chats today. Clears itself tomorrow.</p>
+        <p id="special-current" class="current-value">—</p>
+        <form id="special-form" class="inline-form">
+          <input id="special-text" placeholder="Something special that happened today…" autocomplete="off" />
+          <button type="submit">Set</button>
+          <button type="button" id="special-clear-btn" class="secondary-btn">Clear</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Persona extras</h2>
+        <div class="extras-grid">
+          <div class="extra-col" data-field="skill">
+            <h3>Extra skills</h3>
+            <ul class="tag-list" id="skill-list"></ul>
+            <form class="inline-form add-form" data-field="skill">
+              <input placeholder="Add a skill…" autocomplete="off" required />
+              <button type="submit">Add</button>
+            </form>
+          </div>
+          <div class="extra-col" data-field="like">
+            <h3>Extra likes</h3>
+            <ul class="tag-list" id="like-list"></ul>
+            <form class="inline-form add-form" data-field="like">
+              <input placeholder="Add a like…" autocomplete="off" required />
+              <button type="submit">Add</button>
+            </form>
+          </div>
+          <div class="extra-col" data-field="dislike">
+            <h3>Extra dislikes</h3>
+            <ul class="tag-list" id="dislike-list"></ul>
+            <form class="inline-form add-form" data-field="dislike">
+              <input placeholder="Add a dislike…" autocomplete="off" required />
+              <button type="submit">Add</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Story arc</h2>
+        <p id="arc-current" class="current-value">—</p>
+        <div class="button-row">
+          <button type="button" class="confirm-btn" data-action="start">Start new arc</button>
+          <button type="button" class="confirm-btn" data-action="skip">Skip to next phase</button>
+          <button type="button" class="confirm-btn danger" data-action="reset">Reset to resting</button>
+        </div>
+        <p class="hint">Starting/skipping can take a few seconds - it may call Claude to generate a fresh story premise.</p>
+      </section>
+    </main>
+  </div>
+  <script src="/admin-client.js"></script>
+</body>
+</html>

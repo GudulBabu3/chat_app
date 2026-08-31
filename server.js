@@ -11,7 +11,7 @@ const { Server } = require('socket.io');
 const { MongoClient, ObjectId } = require('mongodb');
 
 const { loadProfile, loadWorldProfile, buildSystemPrompt } = require('./persona');
-const { askPet } = require('./claude-bridge');
+const { askPet, generateStoryPremise } = require('./claude-bridge');
 const { verifyPassword, isRateLimited, recordAttempt, clearAttempts } = require('./auth');
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
@@ -25,6 +25,7 @@ const MAX_MESSAGE_LENGTH = 2000;
 const HISTORY_LIMIT = 50;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const INTERNAL_ADMIN_SECRET = process.env.INTERNAL_ADMIN_SECRET || '';
+const ADMIN_PANEL_PASSWORD = process.env.ADMIN_PANEL_PASSWORD || '';
 
 if (!PUSH_ENABLED) {
   console.warn('[push] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set - push notifications are disabled.');
@@ -36,6 +37,10 @@ if (!INTERNAL_ADMIN_SECRET) {
 
 if (!TTS_ENABLED) {
   console.warn('[tts] AZURE_SPEECH_KEY/AZURE_SPEECH_REGION not set - spoken pet replies are disabled (text chat is unaffected).');
+}
+
+if (!ADMIN_PANEL_PASSWORD) {
+  console.warn('[admin] ADMIN_PANEL_PASSWORD not set - the web admin panel at /admin is disabled until it is.');
 }
 
 // Gap before TukuruMukuru's next unprompted check-in, reset every time the
@@ -59,6 +64,12 @@ const profile = loadProfile();
 const worldProfile = loadWorldProfile();
 const ALLOWED_STICKERS = Object.keys(profile.stickers.guidance);
 const DEFAULT_STICKER = profile.stickers.default || 'neutral';
+
+// Used by the admin panel's story-arc controls (mirrors admin.js's own
+// generatePremise wrapper).
+function generateArcPremise({ pastTitles }) {
+  return generateStoryPremise({ worldProfile, pastTitles, cwd: CLAUDE_CWD });
+}
 
 const app = express();
 app.set('trust proxy', 1); // needed so secure cookies work correctly behind Tailscale Funnel
@@ -87,6 +98,49 @@ io.engine.use(sessionMiddleware);
 function requireAuth(req, res, next) {
   if (req.session && req.session.userId) return next();
   res.redirect('/login');
+}
+
+// Separate admin-panel password, not tied to any chat user account - see
+// ADMIN_PANEL_PASSWORD above. Its own tiny rate limiter (not auth.js's) so
+// repeated wrong guesses here don't also lock the admin out of their own
+// regular chat login.
+const adminLoginAttempts = new Map();
+const ADMIN_WINDOW_MS = 15 * 60 * 1000;
+const ADMIN_MAX_ATTEMPTS = 10;
+
+function isAdminRateLimited(ip) {
+  const now = Date.now();
+  const entry = adminLoginAttempts.get(ip);
+  if (!entry) return false;
+  if (now - entry.firstAttemptAt > ADMIN_WINDOW_MS) {
+    adminLoginAttempts.delete(ip);
+    return false;
+  }
+  return entry.count >= ADMIN_MAX_ATTEMPTS;
+}
+
+function recordAdminAttempt(ip) {
+  const now = Date.now();
+  const entry = adminLoginAttempts.get(ip);
+  if (!entry || now - entry.firstAttemptAt > ADMIN_WINDOW_MS) {
+    adminLoginAttempts.set(ip, { count: 1, firstAttemptAt: now });
+    return;
+  }
+  entry.count += 1;
+}
+
+function clearAdminAttempts(ip) {
+  adminLoginAttempts.delete(ip);
+}
+
+function requireAdmin(req, res, next) {
+  if (req.session && req.session.isAdmin) return next();
+  res.redirect('/admin/login');
+}
+
+function requireAdminApi(req, res, next) {
+  if (req.session && req.session.isAdmin) return next();
+  res.status(401).json({ ok: false, error: 'Not authenticated as admin.' });
 }
 
 // --- Public routes ---
@@ -121,6 +175,38 @@ app.post('/api/login', async (req, res) => {
 
 app.post('/api/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
+});
+
+// --- Admin panel auth (separate password, not a chat user account) ---
+app.get('/admin/login', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin-login.html'));
+});
+
+app.post('/admin/api/login', (req, res) => {
+  if (!ADMIN_PANEL_PASSWORD) {
+    return res.status(503).json({ ok: false, error: 'Admin panel is not configured (ADMIN_PANEL_PASSWORD missing on the server).' });
+  }
+  const ip = req.ip || 'unknown';
+  if (isAdminRateLimited(ip)) {
+    return res.status(429).json({ ok: false, error: 'Too many attempts. Try again later.' });
+  }
+  const { password } = req.body || {};
+  if (password !== ADMIN_PANEL_PASSWORD) {
+    recordAdminAttempt(ip);
+    return res.status(401).json({ ok: false, error: 'Wrong password.' });
+  }
+  clearAdminAttempts(ip);
+  req.session.isAdmin = true;
+  res.json({ ok: true });
+});
+
+app.post('/admin/api/logout', (req, res) => {
+  if (req.session) delete req.session.isAdmin;
+  res.json({ ok: true });
+});
+
+app.get('/admin', requireAdmin, (_req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'admin.html'));
 });
 
 // --- Protected app + assets ---
@@ -251,6 +337,132 @@ async function start() {
     }
 
     res.json({ ok: true });
+  });
+
+  // --- Admin panel: web UI for what admin.js already does over SSH ---
+  const ADMIN_LIST_FIELDS = { skill: 'extraSkills', like: 'extraLikes', dislike: 'extraDislikes' };
+
+  app.get('/admin/api/status', requireAdminApi, async (_req, res) => {
+    const [adminState, arcState, userCount] = await Promise.all([
+      petAdmin.getAdminState(petAdminCollection),
+      storyArc.getArcState(storyArcCollection),
+      usersCollection.countDocuments(),
+    ]);
+    res.json({
+      ok: true,
+      petName: profile.name,
+      extraSkills: adminState.extraSkills,
+      extraLikes: adminState.extraLikes,
+      extraDislikes: adminState.extraDislikes,
+      todaySpecial: adminState.todaySpecial,
+      arc: arcState,
+      pushEnabled: PUSH_ENABLED,
+      userCount,
+      allowedStickers: ALLOWED_STICKERS,
+      defaultSticker: DEFAULT_STICKER,
+    });
+  });
+
+  app.get('/admin/api/users', requireAdminApi, async (_req, res) => {
+    const users = await usersCollection
+      .find({}, { projection: { username: 1, createdAt: 1 } })
+      .sort({ username: 1 })
+      .toArray();
+    res.json({ ok: true, users: users.map((u) => ({ username: u.username, createdAt: u.createdAt || null })) });
+  });
+
+  app.post('/admin/api/send', requireAdminApi, async (req, res) => {
+    const { username, message, sticker } = req.body || {};
+    const text = String(message || '').trim().slice(0, MAX_MESSAGE_LENGTH);
+    if (!username || !text) {
+      return res.status(400).json({ ok: false, error: 'username and message are required.' });
+    }
+    const chosenSticker = sticker && ALLOWED_STICKERS.includes(sticker) ? sticker : DEFAULT_STICKER;
+
+    const user = await usersCollection.findOne({ username: String(username).trim().toLowerCase() });
+    if (!user) {
+      return res.status(404).json({ ok: false, error: `No user found with username "${username}".` });
+    }
+    const userId = user._id.toString();
+
+    await messagesCollection.insertOne({
+      userId,
+      role: 'pet',
+      text,
+      sticker: chosenSticker,
+      createdAt: new Date(),
+      adminSent: true,
+    });
+
+    // Same live-delivery path as a normal reply: show it instantly on any
+    // open tab, push if nobody's currently looking. In-process, so no need
+    // to round-trip through /internal/notify like admin.js/nudge-scheduler.js do.
+    notifyUserSockets(userId, { text, sticker: chosenSticker, createdAt: new Date() });
+    if (!isUserVisible(userId)) {
+      sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: text, url: '/' }).catch((err) =>
+        console.warn(`[admin panel] push send failed for ${username}:`, err.message)
+      );
+    }
+
+    res.json({ ok: true });
+  });
+
+  app.post('/admin/api/list/:field/:action', requireAdminApi, async (req, res) => {
+    const dbField = ADMIN_LIST_FIELDS[req.params.field];
+    const { action } = req.params;
+    if (!dbField || !['add', 'remove'].includes(action)) {
+      return res.status(400).json({ ok: false, error: 'Unknown list or action.' });
+    }
+    const text = String((req.body || {}).text || '').trim();
+    if (!text) return res.status(400).json({ ok: false, error: 'text is required.' });
+
+    if (action === 'add') {
+      await petAdmin.addToList(petAdminCollection, dbField, text);
+    } else {
+      await petAdmin.removeFromList(petAdminCollection, dbField, text);
+    }
+    res.json({ ok: true });
+  });
+
+  app.post('/admin/api/special', requireAdminApi, async (req, res) => {
+    const { action, text } = req.body || {};
+    if (action === 'set') {
+      const trimmed = String(text || '').trim();
+      if (!trimmed) return res.status(400).json({ ok: false, error: 'text is required to set a special.' });
+      await petAdmin.setTodaySpecial(petAdminCollection, trimmed);
+    } else if (action === 'clear') {
+      await petAdmin.clearTodaySpecial(petAdminCollection);
+    } else {
+      return res.status(400).json({ ok: false, error: 'action must be "set" or "clear".' });
+    }
+    res.json({ ok: true });
+  });
+
+  app.post('/admin/api/arc/:action', requireAdminApi, async (req, res) => {
+    const { action } = req.params;
+    try {
+      if (action === 'start') {
+        const before = await storyArc.getArcState(storyArcCollection);
+        if (before.phase !== 'resting') {
+          return res.status(409).json({ ok: false, error: `An arc is already in progress (phase: ${before.phase}). Use "reset" first to force a restart.` });
+        }
+        const newState = await storyArc.forceAdvance(storyArcCollection, new Date(), { generatePremise: generateArcPremise });
+        return res.json({ ok: true, arc: newState });
+      }
+      if (action === 'skip') {
+        const newState = await storyArc.forceAdvance(storyArcCollection, new Date(), { generatePremise: generateArcPremise });
+        return res.json({ ok: true, arc: newState });
+      }
+      if (action === 'reset') {
+        await storyArc.resetToResting(storyArcCollection);
+        const newState = await storyArc.getArcState(storyArcCollection);
+        return res.json({ ok: true, arc: newState });
+      }
+      res.status(400).json({ ok: false, error: 'Unknown arc action.' });
+    } catch (err) {
+      console.error('[admin panel] arc action failed:', err.message);
+      res.status(500).json({ ok: false, error: `Arc action failed: ${err.message}` });
+    }
   });
 
   io.on('connection', async (socket) => {
