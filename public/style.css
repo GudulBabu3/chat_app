@@ -39,7 +39,7 @@ header {
 .header-text { flex: 1; }
 .header-text h1 { font-size: 18px; margin: 0; }
 .header-text span { font-size: 12px; color: #c8a98b; }
-#logout-btn, #notify-btn {
+#logout-btn, #notify-btn, #voice-btn {
   background: transparent;
   border: 1px solid #4a3325;
   color: #c8a98b;
@@ -48,9 +48,9 @@ header {
   font-size: 12px;
   cursor: pointer;
 }
-#logout-btn:hover, #notify-btn:hover { background: #3a2818; color: #f5e9df; }
-#notify-btn.active { border-color: #c1522b; color: #f5e9df; }
-#notify-btn.hidden { display: none; }
+#logout-btn:hover, #notify-btn:hover, #voice-btn:hover { background: #3a2818; color: #f5e9df; }
+#notify-btn.active, #voice-btn.active { border-color: #c1522b; color: #f5e9df; }
+#notify-btn.hidden, #voice-btn.hidden { display: none; }
 #messages {
   flex: 1;
   min-height: 0; /* without this, flex items refuse to shrink below their content's natural height, which was pushing the input box off-screen on shorter (mobile) viewports */
@@ -143,6 +143,33 @@ header { flex-shrink: 0; }
   cursor: pointer;
 }
 #message-form button:hover { background: #d96a41; }
+#mic-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid #4a3325;
+  background: #241609;
+  color: #c8a98b;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+#mic-btn:hover { background: #3a2818; color: #f5e9df; }
+#mic-btn.hidden { display: none; }
+#mic-btn.recording {
+  border-color: #c1522b;
+  color: #f5e9df;
+  background: rgba(193, 82, 43, 0.35);
+  animation: mic-pulse 1.2s infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(193, 82, 43, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(193, 82, 43, 0); }
+}
 
 .login-body {
   overflow: auto;

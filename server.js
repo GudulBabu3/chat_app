@@ -16,6 +16,7 @@ const { verifyPassword, isRateLimited, recordAttempt, clearAttempts } = require(
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushToUser } = require('./push-sender');
+const { TTS_ENABLED, synthesizeSpeech } = require('./tts');
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
@@ -31,6 +32,10 @@ if (!PUSH_ENABLED) {
 
 if (!INTERNAL_ADMIN_SECRET) {
   console.warn('[internal] INTERNAL_ADMIN_SECRET not set - admin.js/nudge-scheduler.js can still save messages, but cannot notify live tabs or trigger push for them.');
+}
+
+if (!TTS_ENABLED) {
+  console.warn('[tts] AZURE_SPEECH_KEY/AZURE_SPEECH_REGION not set - spoken pet replies are disabled (text chat is unaffected).');
 }
 
 // Gap before TukuruMukuru's next unprompted check-in, reset every time the
@@ -127,6 +132,29 @@ app.get('/', requireAuth, (_req, res) => {
 
 app.get('/api/pet', requireAuth, (req, res) => {
   res.json({ name: profile.name, species: profile.species, username: req.session.username });
+});
+
+// --- Text-to-speech (emotion-matched via the same "sticker" mood the pet
+// already picks for every reply - see tts.js) ---
+app.get('/api/tts/status', requireAuth, (_req, res) => {
+  res.json({ enabled: TTS_ENABLED });
+});
+
+app.post('/api/tts', requireAuth, async (req, res) => {
+  if (!TTS_ENABLED) return res.status(503).json({ ok: false, error: 'Voice replies are not configured.' });
+  const { text, sticker } = req.body || {};
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ ok: false, error: 'text required.' });
+  }
+  try {
+    const audio = await synthesizeSpeech(text.trim().slice(0, MAX_MESSAGE_LENGTH), sticker);
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Cache-Control', 'no-store');
+    res.send(audio);
+  } catch (err) {
+    console.warn('[tts] synthesis failed:', err.message);
+    res.status(502).json({ ok: false, error: 'Voice synthesis failed.' });
+  }
 });
 
 // --- Web Push subscription management ---
