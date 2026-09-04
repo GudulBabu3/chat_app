@@ -34,7 +34,11 @@ function scrollToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function renderMessage(text, who, sticker) {
+// Builds the DOM for one message bubble without inserting it anywhere -
+// shared by renderMessage (appends at the bottom, for live/initial messages)
+// and prependMessages (inserts at the top, for older history loaded by
+// scrolling up) so both paths stay in sync.
+function createMessageEl(text, who, sticker) {
   const div = document.createElement('div');
   div.className = `msg ${who}`;
 
@@ -49,13 +53,47 @@ function renderMessage(text, who, sticker) {
     div.appendChild(img);
   }
 
+  const row = document.createElement('div');
+  row.className = 'msg-row';
+
   const textEl = document.createElement('div');
   textEl.className = 'msg-text';
   textEl.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
-  div.appendChild(textEl);
+  row.appendChild(textEl);
 
+  // Per-message replay button - lets you hear any pet reply on demand, not
+  // just whichever one just arrived live. Hidden via CSS (#messages.tts-enabled)
+  // until /api/tts/status confirms voice is actually configured. No audio is
+  // cached anywhere for this - see the voice-output section below for why.
+  if (who === 'pet') {
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'msg-play-btn';
+    playBtn.title = 'Play this message';
+    playBtn.textContent = '▶️';
+    playBtn.addEventListener('click', () => playMessageAudio(text, sticker, playBtn));
+    row.appendChild(playBtn);
+  }
+
+  div.appendChild(row);
+  return div;
+}
+
+function renderMessage(text, who, sticker) {
+  const div = createMessageEl(text, who, sticker);
   messagesEl.appendChild(div);
   scrollToBottom();
+  return div;
+}
+
+// Inserts a batch of older messages (oldest-first) at the very top of the
+// chat in one go, without disturbing what's already rendered below them.
+function prependMessages(items) {
+  const frag = document.createDocumentFragment();
+  items.forEach((m) => {
+    frag.appendChild(createMessageEl(m.text, m.who, m.sticker));
+  });
+  messagesEl.insertBefore(frag, messagesEl.firstChild);
 }
 
 fetch('/api/pet')
@@ -87,9 +125,58 @@ socket.on('auth-error', () => {
   window.location.href = '/login';
 });
 
-socket.on('history', (messages) => {
+// --- Infinite-scroll pagination for older history ---
+// The initial Socket.IO 'history' event only ever sends the most recent
+// HISTORY_LIMIT messages (see server.js); scrolling to the top of #messages
+// fetches further back from MongoDB via /api/messages, paged by timestamp.
+const HISTORY_PAGE_SIZE = 50; // keep in sync with server.js's HISTORY_LIMIT
+let oldestLoadedAt = null;
+let hasMoreHistory = true;
+let loadingMoreHistory = false;
+
+function trackOldest(items) {
+  if (items.length && items[0].createdAt) oldestLoadedAt = new Date(items[0].createdAt);
+}
+
+async function loadMoreHistory() {
+  if (loadingMoreHistory || !hasMoreHistory || !oldestLoadedAt) return;
+  loadingMoreHistory = true;
+  try {
+    const url = `/api/messages?before=${encodeURIComponent(oldestLoadedAt.toISOString())}&limit=${HISTORY_PAGE_SIZE}`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    const items = (data && data.messages) || [];
+    if (!items.length) {
+      hasMoreHistory = false;
+      return;
+    }
+    // Loading older messages pushes everything below them further down -
+    // keep the user's current view pinned to the same message rather than
+    // letting the scroll position jump around under them.
+    const prevScrollHeight = messagesEl.scrollHeight;
+    const prevScrollTop = messagesEl.scrollTop;
+    prependMessages(items);
+    trackOldest(items);
+    hasMoreHistory = Boolean(data.hasMore);
+    messagesEl.scrollTop = prevScrollTop + (messagesEl.scrollHeight - prevScrollHeight);
+  } catch (err) {
+    console.warn('[history] failed to load older messages', err);
+  } finally {
+    loadingMoreHistory = false;
+  }
+}
+
+messagesEl.addEventListener('scroll', () => {
+  if (messagesEl.scrollTop < 80) loadMoreHistory();
+});
+
+socket.on('history', (payload) => {
+  const messages = (payload && payload.messages) || [];
   messagesEl.innerHTML = '';
   messages.forEach((m) => renderMessage(m.text, m.who, m.sticker));
+  trackOldest(messages);
+  hasMoreHistory = Boolean(payload && payload.hasMore);
 });
 
 socket.on('user-message-echo', (payload) => {
@@ -97,8 +184,8 @@ socket.on('user-message-echo', (payload) => {
 });
 
 socket.on('pet-message', (payload) => {
-  renderMessage(payload.text, 'pet', payload.sticker);
-  speak(payload.text, payload.sticker);
+  const div = renderMessage(payload.text, 'pet', payload.sticker);
+  if (voiceEnabled) playMessageAudio(payload.text, payload.sticker, div.querySelector('.msg-play-btn'));
 });
 
 socket.on('pet-error', (message) => {
@@ -179,11 +266,21 @@ if (micBtn && SpeechRecognitionImpl) {
 
 // --- Voice output (text-to-speech, emotion-matched via Azure) ---
 // Server tells us up front whether AZURE_SPEECH_KEY/AZURE_SPEECH_REGION are
-// actually configured, so the speaker button never appears if voice replies
-// wouldn't work anyway.
+// actually configured, so the speaker button and per-message play buttons
+// never appear if voice replies wouldn't work anyway.
+//
+// No audio is cached anywhere, client or server - every play, live or
+// replayed, POSTs the message's text+sticker to /api/tts and Azure
+// regenerates the MP3 fresh each time. The text/sticker for every message is
+// already stored in Mongo for the chat history itself, so replaying an old
+// message needs no new storage, no retention policy, and no cleanup job.
+// The tradeoff is a ~1s wait and a small Azure quota hit per replay, which
+// is fine since replaying is a deliberate, occasional tap rather than
+// something that happens in bulk.
 const VOICE_PREF_KEY = 'tukuru-voice-enabled';
 let voiceEnabled = localStorage.getItem(VOICE_PREF_KEY) === 'true';
 let currentAudio = null;
+let currentPlayBtn = null;
 
 function updateVoiceBtn() {
   if (!voiceBtn) return;
@@ -192,47 +289,93 @@ function updateVoiceBtn() {
   voiceBtn.title = voiceEnabled ? 'Voice replies on - tap to mute' : 'Voice replies off - tap to enable';
 }
 
+function setBtnPlaying(btn, playing) {
+  if (!btn) return;
+  btn.textContent = playing ? '⏸️' : '▶️';
+  btn.classList.toggle('playing', playing);
+}
+
 function stopSpeaking() {
   if (currentAudio) {
     currentAudio.pause();
     currentAudio.currentTime = 0;
-    currentAudio = null;
   }
+  setBtnPlaying(currentPlayBtn, false);
+  currentAudio = null;
+  currentPlayBtn = null;
 }
 
-async function speak(text, sticker) {
-  if (!voiceEnabled || !text || !voiceBtn || voiceBtn.classList.contains('hidden')) return;
+// Plays a message's voice, or - if this exact button's audio is already
+// playing - pauses it instead (tapping the same play button twice acts as
+// play/pause). `btn` is optional: the auto-play-on-arrival call from the
+// pet-message handler passes the new message's own button so its icon
+// reflects playback, but this also works standalone.
+async function playMessageAudio(text, sticker, btn) {
+  if (!text) return;
+  if (btn && btn === currentPlayBtn && currentAudio) {
+    stopSpeaking();
+    return;
+  }
   stopSpeaking();
+  setBtnPlaying(btn, true);
   try {
     const res = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, sticker }),
     });
-    if (!res.ok) return; // voice is a bonus on top of text chat, fail silently
+    if (!res.ok) {
+      setBtnPlaying(btn, false);
+      return; // voice is a bonus on top of text chat, fail silently
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    currentAudio = new Audio(url);
-    currentAudio.addEventListener('ended', () => URL.revokeObjectURL(url));
+    const audio = new Audio(url);
+    currentAudio = audio;
+    currentPlayBtn = btn || null;
+    audio.addEventListener('ended', () => {
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) {
+        setBtnPlaying(btn, false);
+        currentAudio = null;
+        currentPlayBtn = null;
+      }
+    });
     // Browsers can block autoplay before any user gesture on the page (e.g.
-    // the very first greeting on a fresh load) - that's expected, not an error.
-    await currentAudio.play().catch(() => {});
+    // the very first greeting on a fresh load) - that's expected, not an
+    // error. A manual button click always counts as a user gesture, so this
+    // only ever bites the very first auto-played message.
+    await audio.play().catch(() => {
+      if (currentAudio === audio) {
+        setBtnPlaying(btn, false);
+        currentAudio = null;
+        currentPlayBtn = null;
+      }
+    });
   } catch (err) {
-    console.warn('[voice] speak failed', err);
+    console.warn('[voice] play failed', err);
+    setBtnPlaying(btn, false);
+    if (currentPlayBtn === btn) {
+      currentAudio = null;
+      currentPlayBtn = null;
+    }
   }
 }
 
-if (voiceBtn) {
-  fetch('/api/tts/status')
-    .then((r) => r.json())
-    .then((info) => {
-      if (info && info.enabled) {
+fetch('/api/tts/status')
+  .then((r) => r.json())
+  .then((info) => {
+    if (info && info.enabled) {
+      messagesEl.classList.add('tts-enabled'); // reveals every msg-play-btn
+      if (voiceBtn) {
         voiceBtn.classList.remove('hidden');
         updateVoiceBtn();
       }
-    })
-    .catch(() => {});
+    }
+  })
+  .catch(() => {});
 
+if (voiceBtn) {
   voiceBtn.addEventListener('click', () => {
     voiceEnabled = !voiceEnabled;
     localStorage.setItem(VOICE_PREF_KEY, String(voiceEnabled));

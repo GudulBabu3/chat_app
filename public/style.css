@@ -84,9 +84,32 @@ header {
   align-self: center;
   display: block;
 }
+.msg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.msg.pet .msg-row { justify-content: space-between; }
 .msg-text {
   white-space: pre-wrap;
 }
+.msg-play-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 10px;
+  opacity: 0.7;
+  display: none; /* revealed only once #messages.tts-enabled is set */
+}
+.msg-play-btn:hover { opacity: 1; background: rgba(245, 233, 223, 0.1); }
+.msg-play-btn.playing { opacity: 1; }
+#messages.tts-enabled .msg-play-btn { display: inline-flex; align-items: center; justify-content: center; }
 .msg.own {
   background: #c1522b;
   color: #1b120c;

@@ -243,6 +243,41 @@ app.post('/api/tts', requireAuth, async (req, res) => {
   }
 });
 
+// --- Older chat history (infinite-scroll pagination) ---
+// The Socket.IO 'history' event on connect only ever sends the most recent
+// HISTORY_LIMIT messages; scrolling #messages to the top calls this to fetch
+// further back. Paged strictly by timestamp (?before=<ISO date>, exclusive)
+// rather than an offset/skip - offsets shift under concurrent inserts
+// (a new reply arriving while you're scrolling would push everything down
+// and cause skipped or repeated messages), timestamps don't.
+app.get('/api/messages', requireAuth, async (req, res) => {
+  const userId = req.session.userId;
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || HISTORY_LIMIT, 1), HISTORY_LIMIT);
+  const before = req.query.before ? new Date(req.query.before) : null;
+  if (!before || Number.isNaN(before.getTime())) {
+    return res.status(400).json({ ok: false, error: 'before (ISO date) is required.' });
+  }
+  const older = await messagesCollection
+    .find({ userId, createdAt: { $lt: before } })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .toArray();
+  older.reverse();
+  res.json({
+    ok: true,
+    messages: older.map((m) => ({
+      text: m.text,
+      who: m.role === 'user' ? 'own' : 'pet',
+      sticker: m.role === 'pet' ? m.sticker || DEFAULT_STICKER : undefined,
+      createdAt: m.createdAt,
+    })),
+    // Same page-size heuristic as the socket 'history' event: a full page
+    // suggests there may be more, an exact boundary just costs one extra
+    // fetch that comes back empty and sets hasMoreHistory to false client-side.
+    hasMore: older.length === limit,
+  });
+});
+
 // --- Web Push subscription management ---
 app.get('/api/push/vapid-public-key', requireAuth, (_req, res) => {
   if (!PUSH_ENABLED) return res.status(503).json({ ok: false, error: 'Push notifications are not configured.' });
@@ -287,6 +322,10 @@ async function start() {
   pushSubscriptionsCollection = db.collection('pushSubscriptions');
   petAdminCollection = db.collection('petAdmin');
   storyArcCollection = db.collection('storyArc');
+  // Speeds up both the initial 'history' load and the /api/messages
+  // pagination endpoint above, which now query this collection far more
+  // often (every scroll-to-top) than before.
+  await messagesCollection.createIndex({ userId: 1, createdAt: -1 });
   console.log(`Connected to MongoDB (${MONGO_URL}/${DB_NAME})`);
 
   const busyUsers = new Set();
@@ -553,14 +592,17 @@ async function start() {
       .limit(HISTORY_LIMIT)
       .toArray();
     history.reverse();
-    socket.emit(
-      'history',
-      history.map((m) => ({
+    socket.emit('history', {
+      messages: history.map((m) => ({
         text: m.text,
         who: m.role === 'user' ? 'own' : 'pet',
         sticker: m.role === 'pet' ? m.sticker || DEFAULT_STICKER : undefined,
-      }))
-    );
+        createdAt: m.createdAt,
+      })),
+      // Tells the client whether scrolling to the top is worth wiring up at
+      // all for this account - see /api/messages above for the same heuristic.
+      hasMore: history.length === HISTORY_LIMIT,
+    });
 
     async function callClaude(userMessage, isFirstTurn, sessionIdToUse) {
       // Built fresh on every turn (not cached at startup) so an admin edit
