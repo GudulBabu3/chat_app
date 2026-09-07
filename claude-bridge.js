@@ -296,4 +296,122 @@ function generateStoryPremise({ worldProfile, pastTitles, cwd, maxDays = MAX_PHA
   });
 }
 
-module.exports = { askPet, generateStoryPremise, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };
+
+// Cheaper/faster model used only for background fact extraction below -
+// kept separate from MODEL (the persona's own reply model) so extraction
+// never competes with reply latency or the persona call's own budget.
+const FACTS_MODEL = process.env.CLAUDE_FACTS_MODEL || 'haiku';
+const FACTS_BUDGET_USD = '0.10';
+
+function buildFactsJsonSchema() {
+  return JSON.stringify({
+    type: 'object',
+    properties: {
+      facts: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['facts'],
+    additionalProperties: false,
+  });
+}
+
+function buildFactsPrompt({ existingFacts, transcript }) {
+  const existingBlock = (existingFacts || []).length
+    ? `\n\nFACTS YOU ALREADY HAVE ON FILE (do not repeat these - only return facts that are genuinely new, or that correct/update one of these):\n${existingFacts.map((f) => `- ${f}`).join('\n')}`
+    : '';
+
+  return `You are extracting durable personal facts a person stated about themselves while chatting with a companion-pet app, so those facts can be remembered permanently and reintroduced later even if the chat session's own memory resets or gets summarized away.
+
+Read the conversation excerpt below and list any NEW durable facts the person stated about themselves - things like their name, job, family, pets, hobbies, preferences, or other life details that would still be true weeks from now. Each fact should be a short, self-contained sentence (e.g. "Her name is Priya." or "She has a dog named Bruno.").
+
+Do NOT include: passing moods or one-off remarks ("I'm tired today"), anything the PET said, guesses or inferences you aren't confident the person actually stated, or anything already in the "facts you already have on file" list below. If there is nothing new, return an empty list - do not force a fact.${existingBlock}
+
+CONVERSATION EXCERPT:
+${transcript}`;
+}
+
+/**
+ * One-shot, non-conversational extraction pass - never resumes a session
+ * (each call is fully independent), same shape as generateStoryPremise
+ * above. This is what gives TukuruMukuru a per-user facts list in MongoDB
+ * that survives independently of whatever the CLI's own --resume session
+ * transcript does, including its own auto-compaction of long sessions and
+ * the fresh-session fallback in server.js's callClaude when a --resume
+ * ever fails outright. See server.js's extractAndSaveUserFacts and
+ * persona.js's userFacts plumbing for how this gets stored and reinjected
+ * into the system prompt every turn.
+ *
+ * Returns [] (never throws) on any failure - a missed extraction just means
+ * no new facts get filed this turn, same fail-open philosophy as
+ * generateStoryPremise.
+ *
+ * @param {object} opts
+ * @param {string[]} opts.existingFacts - facts already on file for this user
+ * @param {string} opts.transcript - the excerpt to scan (one message, or a
+ *   chunk of "User: ...\nPet: ..." lines for backfilling older history)
+ * @param {string} opts.cwd
+ * @returns {Promise<string[]>}
+ */
+function extractFacts({ existingFacts, transcript, cwd }) {
+  const args = [
+    '-p', buildFactsPrompt({ existingFacts, transcript }),
+    '--session-id', crypto.randomUUID(), // fresh, one-shot - never resumed
+    '--output-format', 'json',
+    '--json-schema', buildFactsJsonSchema(),
+    '--tools', '',
+    '--strict-mcp-config',
+    '--model', FACTS_MODEL,
+    '--fallback-model', FACTS_MODEL,
+    '--max-budget-usd', FACTS_BUDGET_USD,
+  ];
+
+  return new Promise((resolve) => {
+    execFile(
+      CLAUDE_BIN,
+      args,
+      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          console.error('[facts] claude CLI failed:', err.message);
+          resolve([]);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout);
+          const structured = parsed.structured_output;
+          if (structured && Array.isArray(structured.facts)) {
+            resolve(
+              structured.facts
+                .filter((f) => typeof f === 'string' && f.trim())
+                .map((f) => f.trim())
+            );
+          } else {
+            resolve([]);
+          }
+        } catch (parseErr) {
+          console.error('[facts] could not parse claude CLI output:', parseErr.message);
+          resolve([]);
+        }
+      }
+    );
+  });
+}
+
+// Merges newly extracted facts into the existing list, de-duplicating
+// case-insensitively (exact-text dedup only - it relies on the "facts you
+// already have on file" block above to stop the model re-deriving the same
+// fact worded differently). Caps the list so it can't grow the system
+// prompt without bound; if it's over the cap, drops the oldest facts
+// (front of the array) rather than the most recently learned ones.
+function mergeFacts(existingFacts, newFacts, maxFacts = 60) {
+  const seen = new Set((existingFacts || []).map((f) => f.trim().toLowerCase()));
+  const merged = [...(existingFacts || [])];
+  for (const fact of newFacts || []) {
+    const key = fact.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(fact.trim());
+  }
+  return merged.length > maxFacts ? merged.slice(merged.length - maxFacts) : merged;
+}
+
+module.exports = { askPet, generateStoryPremise, extractFacts, mergeFacts, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };

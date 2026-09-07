@@ -22,6 +22,7 @@
 //   node admin.js arc start
 //   node admin.js arc skip
 //   node admin.js arc reset
+//   node admin.js facts <username> [list|add <text>|remove <n>|clear]
 //
 // Quote <text>/<message> if it has spaces, e.g.:
 //   node admin.js send shyamaluncle "Guess what I did today!"
@@ -63,6 +64,7 @@ const USAGE = `Usage:
   node admin.js dislike <add|remove|list> [text]
   node admin.js special <set|show|clear> [text]
   node admin.js arc <status|start|skip|reset>
+  node admin.js facts <username> [list|add <text>|remove <n>|clear]
   node admin.js status`;
 
 function usageAndExit() {
@@ -230,6 +232,42 @@ async function main() {
         } else if (sub === 'reset') {
           await storyArc.resetToResting(storyArcCollection);
           console.log('Arc reset to resting.');
+        } else {
+          usageAndExit();
+        }
+        break;
+      }
+
+      case 'facts': {
+        const [username, sub, ...textParts] = rest;
+        if (!username) usageAndExit();
+        const user = await usersCollection.findOne({ username: username.trim().toLowerCase() });
+        if (!user) {
+          console.error(`No user found with username "${username}". Run "node admin.js users" to see who exists.`);
+          process.exit(1);
+        }
+        const facts = user.facts || [];
+
+        if (!sub || sub === 'list') {
+          printList(`Facts on file for ${username}`, facts);
+        } else if (sub === 'add') {
+          const text = textParts.join(' ').trim();
+          if (!text) usageAndExit();
+          await usersCollection.updateOne({ _id: user._id }, { $set: { facts: [...facts, text] } });
+          console.log(`Added fact for ${username}: "${text}"`);
+        } else if (sub === 'remove') {
+          const index = parseInt(textParts[0], 10);
+          if (!Number.isInteger(index) || index < 1 || index > facts.length) {
+            console.error(`Give a fact number between 1 and ${facts.length} (see "facts ${username} list").`);
+            process.exit(1);
+          }
+          const removed = facts[index - 1];
+          const updated = facts.filter((_, i) => i !== index - 1);
+          await usersCollection.updateOne({ _id: user._id }, { $set: { facts: updated } });
+          console.log(`Removed fact ${index} for ${username}: "${removed}"`);
+        } else if (sub === 'clear') {
+          await usersCollection.updateOne({ _id: user._id }, { $set: { facts: [] } });
+          console.log(`Cleared all facts for ${username}.`);
         } else {
           usageAndExit();
         }

@@ -11,7 +11,7 @@ const { Server } = require('socket.io');
 const { MongoClient, ObjectId } = require('mongodb');
 
 const { loadProfile, loadWorldProfile, buildSystemPrompt } = require('./persona');
-const { askPet, generateStoryPremise } = require('./claude-bridge');
+const { askPet, generateStoryPremise, extractFacts, mergeFacts } = require('./claude-bridge');
 const { hashPassword, verifyPassword, isRateLimited, recordAttempt, clearAttempts } = require('./auth');
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
@@ -58,6 +58,27 @@ function randomNudgeDelayMs() {
 // Dedicated, empty working directory for claude CLI calls so it never picks
 // up this project's own files, CLAUDE.md, or git context as extra "memory".
 const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
+
+// Looks up a user's current facts list, asks claude-bridge.js's extractFacts
+// whether this message contains anything new, and persists the merged
+// result. See claude-bridge.js for why this exists: TukuruMukuru's only
+// memory of a conversation used to be the Claude CLI's own --resume session
+// transcript, which can summarize away detail on long conversations or, if
+// a --resume ever fails, get replaced with a completely fresh session that
+// remembers nothing at all. This list is rebuilt into the system prompt on
+// every single turn (see callClaude above), so it survives either case.
+async function extractAndSaveUserFacts(userObjectId, userMessage) {
+  const current = await usersCollection.findOne({ _id: userObjectId }, { projection: { facts: 1 } });
+  const existingFacts = current?.facts || [];
+  const newFacts = await extractFacts({
+    existingFacts,
+    transcript: `User: ${userMessage}`,
+    cwd: CLAUDE_CWD,
+  });
+  if (!newFacts.length) return;
+  const merged = mergeFacts(existingFacts, newFacts);
+  await usersCollection.updateOne({ _id: userObjectId }, { $set: { facts: merged } });
+}
 if (!fs.existsSync(CLAUDE_CWD)) fs.mkdirSync(CLAUDE_CWD, { recursive: true });
 
 const profile = loadProfile();
@@ -604,15 +625,18 @@ async function start() {
       hasMore: history.length === HISTORY_LIMIT,
     });
 
-    async function callClaude(userMessage, isFirstTurn, sessionIdToUse) {
+    async function callClaude(userMessage, isFirstTurn, sessionIdToUse, userFacts) {
       // Built fresh on every turn (not cached at startup) so an admin edit
       // via admin.js - a new skill, a like/dislike, today's special note -
-      // takes effect on the very next message, no restart needed.
+      // takes effect on the very next message, no restart needed. userFacts
+      // is the same idea applied to what this specific person has told the
+      // pet about themselves - see extractAndSaveUserFacts below.
       const systemPrompt = buildSystemPrompt(profile, await petAdmin.getAdminState(petAdminCollection), {
         worldProfile,
         arcState: await storyArc.getArcState(storyArcCollection),
         joinedAt: user.createdAt,
         now: new Date(),
+        userFacts,
       });
       try {
         return await askPet({
@@ -664,13 +688,27 @@ async function start() {
               },
             }
           );
+          // Fire-and-forget: scan this message for durable personal facts
+          // (name, job, family, etc.) and file them on the user document,
+          // independently of whatever the Claude CLI's own --resume session
+          // remembers. Not awaited so it never adds latency to the pet's
+          // reply; any failure is logged and otherwise harmless (see
+          // extractFacts's fail-open behavior in claude-bridge.js).
+          extractAndSaveUserFacts(user._id, userMessage).catch((err) =>
+            console.warn(`[${username}] fact extraction failed:`, err.message)
+          );
         }
 
         const freshUser = await usersCollection.findOne({ _id: user._id });
         const isFirstTurn = !freshUser.hasClaudeSession;
         const sessionIdToUse = freshUser.claudeSessionId || crypto.randomUUID();
 
-        const { text, sticker, sessionWasReset } = await callClaude(userMessage, isFirstTurn, sessionIdToUse);
+        const { text, sticker, sessionWasReset } = await callClaude(
+          userMessage,
+          isFirstTurn,
+          sessionIdToUse,
+          freshUser.facts || []
+        );
 
         if (isFirstTurn) {
           await usersCollection.updateOne(

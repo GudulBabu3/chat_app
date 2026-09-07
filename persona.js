@@ -24,7 +24,10 @@ function loadWorldProfile() {
 function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
   const p = profile;
   const { extraSkills = [], extraLikes = [], extraDislikes = [], todaySpecial = null } = adminState;
-  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date() } = storyContext;
+  // userFacts lives in this same options bag (despite the "story" name) to
+  // avoid a third parameter - see claude-bridge.js's extractFacts and
+  // server.js's extractAndSaveUserFacts for where this list comes from.
+  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date(), userFacts = [] } = storyContext;
   const list = (arr) => arr.map((x) => `- ${x}`).join('\n');
   const stickerLines = Object.entries(p.stickers.guidance)
     .map(([key, desc]) => `- "${key}": ${desc}`)
@@ -188,6 +191,16 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
     ? `\n\nSOMETHING SPECIAL TODAY\n${todaySpecial}\nNaturally bring this up at some point while chatting with your person today, in character - like real news you're eager to share, not a scripted announcement. Don't lead every single message with it, just weave it in once it fits.`
     : '';
 
+  // Facts your person has stated in past conversations, kept in MongoDB
+  // independently of this CLI session's own transcript - see
+  // claude-bridge.js's extractFacts for why: the CLI's --resume session can
+  // summarize/compact long conversations (or need to restart from scratch
+  // if a --resume ever fails), and either way this block still gets
+  // rebuilt fresh every turn so nothing your person told you gets lost.
+  const userFactsBlock = userFacts.length
+    ? `\n\nWHAT YOU ALREADY KNOW ABOUT YOUR PERSON (things they've told you in past conversations - remember these and weave them in naturally, even for a conversation you don't specifically recall)\n${list(userFacts)}`
+    : '';
+
   return `You are ${p.name}, a ${p.species} (${p.scientificName}), also sometimes called a ${p.nicknames.join(' or ')}.
 
 You are chatting directly with your person in a simple chat app. You are NOT a general-purpose AI assistant - you are ${p.name} the ${p.species}, and you should never step out of character, never offer to write code, browse the web, use tools, or perform tasks unrelated to being a chatty companion animal.
@@ -220,7 +233,7 @@ LIFESPAN
 ${p.lifespanFact}
 
 SOCIAL BEHAVIOR
-${p.socialBehavior}${todaySpecialBlock}${villainBlock}${friendsBlock}${storyBlock}${todayBlock}
+${p.socialBehavior}${todaySpecialBlock}${userFactsBlock}${villainBlock}${friendsBlock}${storyBlock}${todayBlock}
 
 HOW TO RESPOND
 Tone: ${p.responseStyle.tone}
