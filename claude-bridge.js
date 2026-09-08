@@ -132,7 +132,7 @@ function askPet({ sessionId, isFirstTurn, userMessage, systemPrompt, cwd, allowe
     execFile(
       CLAUDE_BIN,
       args,
-      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
       (err, stdout, stderr) => {
         if (err) {
           reject(new Error(`claude CLI failed: ${err.message}${stderr ? ` | stderr: ${stderr}` : ''}`));
@@ -264,7 +264,7 @@ function generateStoryPremise({ worldProfile, pastTitles, cwd, maxDays = MAX_PHA
     execFile(
       CLAUDE_BIN,
       args,
-      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
       (err, stdout) => {
         if (err) {
           console.error('[story premise] claude CLI failed:', err.message);
@@ -385,7 +385,7 @@ function extractFacts({ existingFacts, existingSelfFacts, transcript, cwd }) {
     execFile(
       CLAUDE_BIN,
       args,
-      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
       (err, stdout) => {
         if (err) {
           console.error('[facts] claude CLI failed:', err.message);
