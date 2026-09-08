@@ -96,6 +96,46 @@
       </section>
 
       <section class="card">
+        <h2>Usage &amp; cost</h2>
+        <p class="hint">Notional API-equivalent cost estimates from the Claude CLI's own token accounting - not real charges (this app runs on a Pro/Max subscription: flat fee, not per-token billing). Treat as a relative usage signal, not literal spend. Includes both the reply and the background fact-extraction call per message.</p>
+        <form id="usage-filter-form" class="inline-form usage-filter">
+          <label class="date-field">
+            From
+            <input type="date" id="usage-from" />
+          </label>
+          <label class="date-field">
+            To
+            <input type="date" id="usage-to" />
+          </label>
+          <button type="submit">Filter</button>
+          <button type="button" id="usage-clear-btn" class="secondary-btn">Clear</button>
+        </form>
+        <div class="table-scroll">
+          <table id="usage-table" class="usage-table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Messages sent</th>
+                <th>Total cost</th>
+                <th>Cost / message</th>
+              </tr>
+            </thead>
+            <tbody id="usage-body">
+              <tr><td colspan="4" class="usage-empty">Loading…</td></tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>All users</td>
+                <td id="usage-total-messages">—</td>
+                <td id="usage-total-cost">—</td>
+                <td id="usage-total-cost-per-message">—</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
         <h2>Story arc</h2>
         <p id="arc-current" class="current-value">—</p>
         <div class="button-row">

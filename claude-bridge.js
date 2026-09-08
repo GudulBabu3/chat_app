@@ -372,7 +372,7 @@ ${transcript}`;
  * @param {string} opts.transcript - the excerpt to scan, as "User: ...\nPet: ..."
  *   lines (one exchange, or a multi-message chunk for backfilling older history)
  * @param {string} opts.cwd
- * @returns {Promise<{ facts: string[], selfFacts: string[], storyBeats: string[] }>}
+ * @returns {Promise<{ facts: string[], selfFacts: string[], storyBeats: string[], costUsd: number|null }>}
  */
 function extractFacts({ existingFacts, existingSelfFacts, existingStoryBeats, transcript, cwd }) {
   const args = [
@@ -387,7 +387,7 @@ function extractFacts({ existingFacts, existingSelfFacts, existingStoryBeats, tr
     '--max-budget-usd', FACTS_BUDGET_USD,
   ];
 
-  const EMPTY = { facts: [], selfFacts: [], storyBeats: [] };
+  const EMPTY = { facts: [], selfFacts: [], storyBeats: [], costUsd: null };
   const cleanList = (value) =>
     Array.isArray(value) ? value.filter((f) => typeof f === 'string' && f.trim()).map((f) => f.trim()) : [];
 
@@ -404,15 +404,21 @@ function extractFacts({ existingFacts, existingSelfFacts, existingStoryBeats, tr
         }
         try {
           const parsed = JSON.parse(stdout);
+          // Same idea as askPet's costUsd above - this call has its own
+          // separate budget/model, so its cost is tracked independently
+          // and summed with the reply's cost by the admin usage endpoint
+          // in server.js, rather than assumed to be negligible.
+          const costUsd = typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null;
           const structured = parsed.structured_output;
           if (structured) {
             resolve({
               facts: cleanList(structured.facts),
               selfFacts: cleanList(structured.selfFacts),
               storyBeats: cleanList(structured.storyBeats),
+              costUsd,
             });
           } else {
-            resolve(EMPTY);
+            resolve({ ...EMPTY, costUsd });
           }
         } catch (parseErr) {
           console.error('[facts] could not parse claude CLI output:', parseErr.message);

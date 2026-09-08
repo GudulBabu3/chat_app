@@ -157,8 +157,62 @@ async function loadUsers() {
   });
 }
 
+function fmtCost(usd) {
+  if (typeof usd !== 'number' || Number.isNaN(usd)) return '—';
+  return `$${usd.toFixed(4)}`;
+}
+
+async function loadUsage() {
+  const from = document.getElementById('usage-from').value;
+  const to = document.getElementById('usage-to').value;
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  const query = params.toString();
+  const data = await api(`/admin/api/usage${query ? `?${query}` : ''}`);
+
+  const body = document.getElementById('usage-body');
+  body.innerHTML = '';
+  if (!data.rows.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4;
+    td.className = 'usage-empty';
+    td.textContent = 'No usage in this range.';
+    tr.appendChild(td);
+    body.appendChild(tr);
+  } else {
+    data.rows.forEach((row) => {
+      const tr = document.createElement('tr');
+      [row.username, String(row.messageCount), fmtCost(row.totalCostUsd), fmtCost(row.costPerMessageUsd)].forEach(
+        (value) => {
+          const td = document.createElement('td');
+          td.textContent = value;
+          tr.appendChild(td);
+        }
+      );
+      body.appendChild(tr);
+    });
+  }
+
+  document.getElementById('usage-total-messages').textContent = data.totals.messageCount;
+  document.getElementById('usage-total-cost').textContent = fmtCost(data.totals.totalCostUsd);
+  document.getElementById('usage-total-cost-per-message').textContent = fmtCost(data.totals.costPerMessageUsd);
+}
+
+document.getElementById('usage-filter-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  loadUsage().catch((err) => toast(err.message, 'error'));
+});
+
+document.getElementById('usage-clear-btn').addEventListener('click', () => {
+  document.getElementById('usage-from').value = '';
+  document.getElementById('usage-to').value = '';
+  loadUsage().catch((err) => toast(err.message, 'error'));
+});
+
 function refreshAll() {
-  return Promise.all([loadStatus(), loadUsers()]).catch((err) => toast(err.message, 'error'));
+  return Promise.all([loadStatus(), loadUsers(), loadUsage()]).catch((err) => toast(err.message, 'error'));
 }
 
 // --- Send message ---

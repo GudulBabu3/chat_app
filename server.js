@@ -73,7 +73,7 @@ const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
 // standing promise, which should stick around indefinitely.
 const STORY_BEATS_CAP = 20;
 
-async function extractAndSaveUserFacts(userObjectId, userMessage, petMessage) {
+async function extractAndSaveUserFacts(userObjectId, userMessage, petMessage, petMessageId) {
   const current = await usersCollection.findOne(
     { _id: userObjectId },
     { projection: { facts: 1, selfFacts: 1, storyBeats: 1 } }
@@ -88,13 +88,25 @@ async function extractAndSaveUserFacts(userObjectId, userMessage, petMessage) {
   // so the pet stays consistent with (and can continue) its own past
   // claims and narrative threads too, not just what the person told it.
   const transcript = `User: ${userMessage}\nPet: ${petMessage}`;
-  const { facts: newFacts, selfFacts: newSelfFacts, storyBeats: newStoryBeats } = await extractFacts({
+  const {
+    facts: newFacts,
+    selfFacts: newSelfFacts,
+    storyBeats: newStoryBeats,
+    costUsd: factsCostUsd,
+  } = await extractFacts({
     existingFacts,
     existingSelfFacts,
     existingStoryBeats,
     transcript,
     cwd: CLAUDE_CWD,
   });
+  // Record this call's own cost on the pet message it was triggered by,
+  // regardless of whether it found anything new - the admin usage endpoint
+  // sums this alongside the reply's own costUsd on the same message, since
+  // both are real CLI calls billed independently (see claude-bridge.js).
+  if (petMessageId && typeof factsCostUsd === 'number') {
+    await messagesCollection.updateOne({ _id: petMessageId }, { $set: { factsCostUsd } });
+  }
   if (!newFacts.length && !newSelfFacts.length && !newStoryBeats.length) return;
   const update = {};
   if (newFacts.length) update.facts = mergeFacts(existingFacts, newFacts);
@@ -600,6 +612,94 @@ async function start() {
     }
   });
 
+  // Per-user usage/cost table for the admin panel. Sums, per user, both
+  // CLI calls that happen per message: the persona reply (askPet's
+  // costUsd, see callClaude above) and the background fact-extraction
+  // pass (extractFacts's own costUsd, attached to the same pet message
+  // as factsCostUsd once it finishes - see extractAndSaveUserFacts). Both
+  // are real per-call charges under the hood, so a message's true cost is
+  // their sum, not just the reply alone.
+  //
+  // IMPORTANT: these are notional, API-equivalent cost estimates that the
+  // Claude CLI computes from token counts x published API pricing - not
+  // real charges. This app authenticates as a Pro/Max subscription, which
+  // bills a flat recurring fee (plus periodic rate limits), not per token,
+  // so no money is actually changing hands per message. Treat this table
+  // as a *relative usage-intensity* signal (which users/days are heavy)
+  // rather than literal spend - the `note` field below is surfaced in the
+  // admin UI for the same reason. Historical messages sent before this
+  // feature existed have no costUsd/factsCostUsd on file and are counted
+  // as $0, not backfilled.
+  app.get('/admin/api/usage', requireAdminApi, async (req, res) => {
+    const { from, to } = req.query || {};
+    const range = {};
+    if (from) {
+      const fromDate = new Date(`${from}T00:00:00.000Z`);
+      if (!Number.isNaN(fromDate.getTime())) range.$gte = fromDate;
+    }
+    if (to) {
+      const toDate = new Date(`${to}T23:59:59.999Z`);
+      if (!Number.isNaN(toDate.getTime())) range.$lte = toDate;
+    }
+    const dateFilter = Object.keys(range).length ? { createdAt: range } : {};
+
+    const [users, userMessages, petMessages] = await Promise.all([
+      usersCollection.find({}, { projection: { username: 1 } }).toArray(),
+      messagesCollection.find({ role: 'user', ...dateFilter }, { projection: { userId: 1 } }).toArray(),
+      messagesCollection
+        .find({ role: 'pet', ...dateFilter }, { projection: { userId: 1, costUsd: 1, factsCostUsd: 1 } })
+        .toArray(),
+    ]);
+
+    // messagesCollection stores userId as the raw session string, while
+    // usersCollection._id is an ObjectId - map through .toString() rather
+    // than assuming they're directly comparable (see server.js's io.on
+    // connection handler for the same string userId).
+    const usernameById = new Map(users.map((u) => [u._id.toString(), u.username]));
+    const stats = new Map(); // userId -> { messageCount, totalCostUsd }
+    const ensure = (userId) => {
+      if (!stats.has(userId)) stats.set(userId, { messageCount: 0, totalCostUsd: 0 });
+      return stats.get(userId);
+    };
+
+    // "Messages sent" counts the person's own turns, not the pet's
+    // replies - a nudge/check-in has no preceding user message but can
+    // still carry real cost, so it's included below in totalCostUsd even
+    // though it doesn't add to this count.
+    for (const m of userMessages) {
+      ensure(m.userId).messageCount += 1;
+    }
+    for (const m of petMessages) {
+      const cost = (typeof m.costUsd === 'number' ? m.costUsd : 0) + (typeof m.factsCostUsd === 'number' ? m.factsCostUsd : 0);
+      ensure(m.userId).totalCostUsd += cost;
+    }
+
+    const round = (n) => Math.round(n * 1e6) / 1e6;
+    const rows = Array.from(stats.entries())
+      .map(([userId, s]) => ({
+        username: usernameById.get(userId) || `(deleted user)`,
+        messageCount: s.messageCount,
+        totalCostUsd: round(s.totalCostUsd),
+        costPerMessageUsd: s.messageCount ? round(s.totalCostUsd / s.messageCount) : null,
+      }))
+      .sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+
+    const totalMessages = rows.reduce((sum, r) => sum + r.messageCount, 0);
+    const totalCostUsd = round(rows.reduce((sum, r) => sum + r.totalCostUsd, 0));
+
+    res.json({
+      ok: true,
+      rows,
+      totals: {
+        messageCount: totalMessages,
+        totalCostUsd,
+        costPerMessageUsd: totalMessages ? round(totalCostUsd / totalMessages) : null,
+      },
+      note:
+        "These are notional API-equivalent cost estimates from the Claude CLI's own token accounting, not real charges - this app runs on a Pro/Max subscription (flat fee, not per-token billing). Use them as a relative usage signal, not literal spend.",
+    });
+  });
+
   io.on('connection', async (socket) => {
     const httpSession = socket.request.session;
     if (!httpSession || !httpSession.userId) {
@@ -721,7 +821,7 @@ async function start() {
         const isFirstTurn = !freshUser.hasClaudeSession;
         const sessionIdToUse = freshUser.claudeSessionId || crypto.randomUUID();
 
-        const { text, sticker, sessionWasReset } = await callClaude(
+        const { text, sticker, sessionWasReset, costUsd } = await callClaude(
           userMessage,
           isFirstTurn,
           sessionIdToUse,
@@ -737,7 +837,18 @@ async function start() {
           );
         }
 
-        await messagesCollection.insertOne({ userId, role: 'pet', text, sticker, createdAt: new Date() });
+        // costUsd is the reply call's own notional cost (see claude-bridge.js's
+        // askPet) - stored per message so the admin usage endpoint can sum
+        // it, together with the background extraction's own factsCostUsd
+        // (attached below once that call finishes), per user and date range.
+        const petMessageResult = await messagesCollection.insertOne({
+          userId,
+          role: 'pet',
+          text,
+          sticker,
+          costUsd: typeof costUsd === 'number' ? costUsd : null,
+          createdAt: new Date(),
+        });
         socket.emit('pet-message', { text, sticker, createdAt: new Date() });
         if (sessionWasReset) {
           socket.emit('pet-error', `(${profile.name}'s memory hiccuped a little and had to restart fresh - sorry about that!)`);
@@ -752,7 +863,7 @@ async function start() {
         // above; any failure is logged and otherwise harmless (see
         // extractFacts's fail-open behavior in claude-bridge.js).
         if (!synthetic) {
-          extractAndSaveUserFacts(user._id, userMessage, text).catch((err) =>
+          extractAndSaveUserFacts(user._id, userMessage, text, petMessageResult.insertedId).catch((err) =>
             console.warn(`[${username}] fact extraction failed:`, err.message)
           );
         }

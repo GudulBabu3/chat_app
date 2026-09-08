@@ -150,6 +150,17 @@ button:disabled { opacity: 0.6; cursor: default; }
 .confirm-btn.armed { background: #b34747; color: #f5e9df; }
 .confirm-btn.danger.armed { background: #b34747; border-color: #b34747; color: #fff; }
 
+.usage-filter { align-items: flex-end; }
+.date-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #c8a98b; }
+.date-field input { width: auto; }
+
+.table-scroll { overflow-x: auto; margin-bottom: 4px; }
+.usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.usage-table th, .usage-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #4a3325; white-space: nowrap; }
+.usage-table thead th { color: #c8a98b; font-weight: 600; font-size: 12px; }
+.usage-table tfoot td { font-weight: 600; border-top: 1px solid #4a3325; border-bottom: none; color: #f5e9df; }
+.usage-empty { color: #c8a98b; font-style: italic; white-space: normal; }
+
 .toast {
   position: fixed;
   top: 14px;
