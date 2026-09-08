@@ -308,22 +308,30 @@ function buildFactsJsonSchema() {
     type: 'object',
     properties: {
       facts: { type: 'array', items: { type: 'string' } },
+      selfFacts: { type: 'array', items: { type: 'string' } },
     },
-    required: ['facts'],
+    required: ['facts', 'selfFacts'],
     additionalProperties: false,
   });
 }
 
-function buildFactsPrompt({ existingFacts, transcript }) {
+function buildFactsPrompt({ existingFacts, existingSelfFacts, transcript }) {
   const existingBlock = (existingFacts || []).length
-    ? `\n\nFACTS YOU ALREADY HAVE ON FILE (do not repeat these - only return facts that are genuinely new, or that correct/update one of these):\n${existingFacts.map((f) => `- ${f}`).join('\n')}`
+    ? `\n\nFACTS YOU ALREADY HAVE ON FILE ABOUT THE PERSON (do not repeat these - only return facts that are genuinely new, or that correct/update one of these):\n${existingFacts.map((f) => `- ${f}`).join('\n')}`
+    : '';
+  const existingSelfBlock = (existingSelfFacts || []).length
+    ? `\n\nTHINGS THE PET ALREADY HAS ON FILE ABOUT ITSELF (do not repeat these - only return items that are genuinely new, or that correct/update one of these):\n${existingSelfFacts.map((f) => `- ${f}`).join('\n')}`
     : '';
 
-  return `You are extracting durable personal facts a person stated about themselves while chatting with a companion-pet app, so those facts can be remembered permanently and reintroduced later even if the chat session's own memory resets or gets summarized away.
+  return `You are extracting two kinds of durable facts from a conversation between a person and a companion-pet app, so they can be remembered permanently and reintroduced later even if the chat session's own memory resets or gets summarized away.
 
-Read the conversation excerpt below and list any NEW durable facts the person stated about themselves - things like their name, job, family, pets, hobbies, preferences, or other life details that would still be true weeks from now. Each fact should be a short, self-contained sentence (e.g. "Her name is Priya." or "She has a dog named Bruno.").
+Read the conversation excerpt below and produce two lists:
 
-Do NOT include: passing moods or one-off remarks ("I'm tired today"), anything the PET said, guesses or inferences you aren't confident the person actually stated, or anything already in the "facts you already have on file" list below. If there is nothing new, return an empty list - do not force a fact.${existingBlock}
+1. "facts" - durable facts the PERSON stated about themselves: their name, job, family, pets, hobbies, preferences, or other life details that would still be true weeks from now. Each fact should be a short, self-contained sentence (e.g. "Her name is Priya." or "She has a dog named Bruno.").
+
+2. "selfFacts" - durable things the PET itself said, claimed, invented, or committed to, that it should stay consistent with going forward - promises it made (e.g. "meet at lunch"), nicknames it gave the person or itself, made-up lore about its friends/rivals/relationships it introduced in freeform conversation, or anything else it told this person about itself or its world that isn't already covered by the app's own separate scripted story-arc content. Each entry should be a short, self-contained sentence written from the pet's own point of view (e.g. "Promised to bring up a food report at lunch." or "Told them Poocha uncle said to keep her company and make her laugh.").
+
+Do NOT include: passing moods, jokes, or one-off remarks that don't need remembering ("I'm tired today", a single joke that was just funny in the moment), guesses or inferences you aren't confident were actually stated, or anything already in the "already on file" lists below for either category. If there is nothing new for a category, return an empty list for it - do not force an entry.${existingBlock}${existingSelfBlock}
 
 CONVERSATION EXCERPT:
 ${transcript}`;
@@ -332,28 +340,33 @@ ${transcript}`;
 /**
  * One-shot, non-conversational extraction pass - never resumes a session
  * (each call is fully independent), same shape as generateStoryPremise
- * above. This is what gives TukuruMukuru a per-user facts list in MongoDB
- * that survives independently of whatever the CLI's own --resume session
- * transcript does, including its own auto-compaction of long sessions and
- * the fresh-session fallback in server.js's callClaude when a --resume
- * ever fails outright. See server.js's extractAndSaveUserFacts and
- * persona.js's userFacts plumbing for how this gets stored and reinjected
- * into the system prompt every turn.
+ * above. This is what gives TukuruMukuru a per-user facts list AND a
+ * per-user selfFacts list in MongoDB, both surviving independently of
+ * whatever the CLI's own --resume session transcript does, including its
+ * own auto-compaction of long sessions and the fresh-session fallback in
+ * server.js's callClaude when a --resume ever fails outright. facts covers
+ * durable things the PERSON said about themselves; selfFacts covers
+ * durable things the PET itself said/promised/invented that it should stay
+ * consistent with - both extracted in the same call since it's the same
+ * conversation excerpt either way. See server.js's extractAndSaveUserFacts
+ * and persona.js's userFacts/selfFacts plumbing for how these get stored
+ * and reinjected into the system prompt every turn.
  *
- * Returns [] (never throws) on any failure - a missed extraction just means
- * no new facts get filed this turn, same fail-open philosophy as
- * generateStoryPremise.
+ * Returns { facts: [], selfFacts: [] } (never throws) on any failure - a
+ * missed extraction just means nothing new gets filed this turn, same
+ * fail-open philosophy as generateStoryPremise.
  *
  * @param {object} opts
- * @param {string[]} opts.existingFacts - facts already on file for this user
- * @param {string} opts.transcript - the excerpt to scan (one message, or a
- *   chunk of "User: ...\nPet: ..." lines for backfilling older history)
+ * @param {string[]} opts.existingFacts - facts already on file about the person
+ * @param {string[]} opts.existingSelfFacts - self-facts already on file for the pet
+ * @param {string} opts.transcript - the excerpt to scan, as "User: ...\nPet: ..."
+ *   lines (one exchange, or a multi-message chunk for backfilling older history)
  * @param {string} opts.cwd
- * @returns {Promise<string[]>}
+ * @returns {Promise<{ facts: string[], selfFacts: string[] }>}
  */
-function extractFacts({ existingFacts, transcript, cwd }) {
+function extractFacts({ existingFacts, existingSelfFacts, transcript, cwd }) {
   const args = [
-    '-p', buildFactsPrompt({ existingFacts, transcript }),
+    '-p', buildFactsPrompt({ existingFacts, existingSelfFacts, transcript }),
     '--session-id', crypto.randomUUID(), // fresh, one-shot - never resumed
     '--output-format', 'json',
     '--json-schema', buildFactsJsonSchema(),
@@ -364,6 +377,10 @@ function extractFacts({ existingFacts, transcript, cwd }) {
     '--max-budget-usd', FACTS_BUDGET_USD,
   ];
 
+  const EMPTY = { facts: [], selfFacts: [] };
+  const cleanList = (value) =>
+    Array.isArray(value) ? value.filter((f) => typeof f === 'string' && f.trim()).map((f) => f.trim()) : [];
+
   return new Promise((resolve) => {
     execFile(
       CLAUDE_BIN,
@@ -372,24 +389,20 @@ function extractFacts({ existingFacts, transcript, cwd }) {
       (err, stdout) => {
         if (err) {
           console.error('[facts] claude CLI failed:', err.message);
-          resolve([]);
+          resolve(EMPTY);
           return;
         }
         try {
           const parsed = JSON.parse(stdout);
           const structured = parsed.structured_output;
-          if (structured && Array.isArray(structured.facts)) {
-            resolve(
-              structured.facts
-                .filter((f) => typeof f === 'string' && f.trim())
-                .map((f) => f.trim())
-            );
+          if (structured) {
+            resolve({ facts: cleanList(structured.facts), selfFacts: cleanList(structured.selfFacts) });
           } else {
-            resolve([]);
+            resolve(EMPTY);
           }
         } catch (parseErr) {
           console.error('[facts] could not parse claude CLI output:', parseErr.message);
-          resolve([]);
+          resolve(EMPTY);
         }
       }
     );

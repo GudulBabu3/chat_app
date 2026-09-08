@@ -23,6 +23,7 @@
 //   node admin.js arc skip
 //   node admin.js arc reset
 //   node admin.js facts <username> [list|add <text>|remove <n>|clear]
+//   node admin.js selffacts <username> [list|add <text>|remove <n>|clear]
 //
 // Quote <text>/<message> if it has spaces, e.g.:
 //   node admin.js send shyamaluncle "Guess what I did today!"
@@ -65,6 +66,7 @@ const USAGE = `Usage:
   node admin.js special <set|show|clear> [text]
   node admin.js arc <status|start|skip|reset>
   node admin.js facts <username> [list|add <text>|remove <n>|clear]
+  node admin.js selffacts <username> [list|add <text>|remove <n>|clear]
   node admin.js status`;
 
 function usageAndExit() {
@@ -238,7 +240,16 @@ async function main() {
         break;
       }
 
-      case 'facts': {
+      case 'facts':
+      case 'selffacts': {
+        // Same shape for both: `facts` is what the pet knows about the
+        // person, `selffacts` is what the pet itself has said/promised
+        // that it should stay consistent with - see claude-bridge.js's
+        // extractFacts, which fills both automatically during live chat.
+        const field = command === 'facts' ? 'facts' : 'selfFacts';
+        const label = command === 'facts' ? 'Facts on file for' : 'Self-facts on file for';
+        const commandName = command;
+
         const [username, sub, ...textParts] = rest;
         if (!username) usageAndExit();
         const user = await usersCollection.findOne({ username: username.trim().toLowerCase() });
@@ -246,28 +257,28 @@ async function main() {
           console.error(`No user found with username "${username}". Run "node admin.js users" to see who exists.`);
           process.exit(1);
         }
-        const facts = user.facts || [];
+        const items = user[field] || [];
 
         if (!sub || sub === 'list') {
-          printList(`Facts on file for ${username}`, facts);
+          printList(`${label} ${username}`, items);
         } else if (sub === 'add') {
           const text = textParts.join(' ').trim();
           if (!text) usageAndExit();
-          await usersCollection.updateOne({ _id: user._id }, { $set: { facts: [...facts, text] } });
-          console.log(`Added fact for ${username}: "${text}"`);
+          await usersCollection.updateOne({ _id: user._id }, { $set: { [field]: [...items, text] } });
+          console.log(`Added to ${commandName} for ${username}: "${text}"`);
         } else if (sub === 'remove') {
           const index = parseInt(textParts[0], 10);
-          if (!Number.isInteger(index) || index < 1 || index > facts.length) {
-            console.error(`Give a fact number between 1 and ${facts.length} (see "facts ${username} list").`);
+          if (!Number.isInteger(index) || index < 1 || index > items.length) {
+            console.error(`Give a number between 1 and ${items.length} (see "${commandName} ${username} list").`);
             process.exit(1);
           }
-          const removed = facts[index - 1];
-          const updated = facts.filter((_, i) => i !== index - 1);
-          await usersCollection.updateOne({ _id: user._id }, { $set: { facts: updated } });
-          console.log(`Removed fact ${index} for ${username}: "${removed}"`);
+          const removed = items[index - 1];
+          const updated = items.filter((_, i) => i !== index - 1);
+          await usersCollection.updateOne({ _id: user._id }, { $set: { [field]: updated } });
+          console.log(`Removed ${commandName} entry ${index} for ${username}: "${removed}"`);
         } else if (sub === 'clear') {
-          await usersCollection.updateOne({ _id: user._id }, { $set: { facts: [] } });
-          console.log(`Cleared all facts for ${username}.`);
+          await usersCollection.updateOne({ _id: user._id }, { $set: { [field]: [] } });
+          console.log(`Cleared all ${commandName} for ${username}.`);
         } else {
           usageAndExit();
         }

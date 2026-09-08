@@ -51,23 +51,31 @@ async function backfillOneUser(usersCollection, messagesCollection, user) {
   }
 
   let facts = user.facts || [];
+  let selfFacts = user.selfFacts || [];
   const chunks = chunk(history, CHUNK_SIZE);
   console.log(`${user.username}: ${history.length} message(s) in ${chunks.length} chunk(s)...`);
 
   for (const [i, batch] of chunks.entries()) {
     const transcript = batch.map((m) => `${m.role === 'user' ? 'User' : 'Pet'}: ${m.text}`).join('\n');
-    const newFacts = await extractFacts({ existingFacts: facts, transcript, cwd: CLAUDE_CWD });
-    if (newFacts.length) {
-      facts = mergeFacts(facts, newFacts);
-      console.log(`  chunk ${i + 1}/${chunks.length}: +${newFacts.length} fact(s)`);
+    const { facts: newFacts, selfFacts: newSelfFacts } = await extractFacts({
+      existingFacts: facts,
+      existingSelfFacts: selfFacts,
+      transcript,
+      cwd: CLAUDE_CWD,
+    });
+    if (newFacts.length) facts = mergeFacts(facts, newFacts);
+    if (newSelfFacts.length) selfFacts = mergeFacts(selfFacts, newSelfFacts);
+    if (newFacts.length || newSelfFacts.length) {
+      console.log(`  chunk ${i + 1}/${chunks.length}: +${newFacts.length} fact(s), +${newSelfFacts.length} self-fact(s)`);
     } else {
       console.log(`  chunk ${i + 1}/${chunks.length}: nothing new`);
     }
   }
 
-  await usersCollection.updateOne({ _id: user._id }, { $set: { facts } });
-  console.log(`${user.username}: saved ${facts.length} total fact(s).`);
-  facts.forEach((f, idx) => console.log(`  ${idx + 1}. ${f}`));
+  await usersCollection.updateOne({ _id: user._id }, { $set: { facts, selfFacts } });
+  console.log(`${user.username}: saved ${facts.length} fact(s) about them, ${selfFacts.length} self-fact(s) about the pet.`);
+  facts.forEach((f, idx) => console.log(`  fact ${idx + 1}. ${f}`));
+  selfFacts.forEach((f, idx) => console.log(`  self-fact ${idx + 1}. ${f}`));
 }
 
 async function main() {

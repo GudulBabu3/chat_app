@@ -67,17 +67,30 @@ const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
 // a --resume ever fails, get replaced with a completely fresh session that
 // remembers nothing at all. This list is rebuilt into the system prompt on
 // every single turn (see callClaude above), so it survives either case.
-async function extractAndSaveUserFacts(userObjectId, userMessage) {
-  const current = await usersCollection.findOne({ _id: userObjectId }, { projection: { facts: 1 } });
+async function extractAndSaveUserFacts(userObjectId, userMessage, petMessage) {
+  const current = await usersCollection.findOne(
+    { _id: userObjectId },
+    { projection: { facts: 1, selfFacts: 1 } }
+  );
   const existingFacts = current?.facts || [];
-  const newFacts = await extractFacts({
+  const existingSelfFacts = current?.selfFacts || [];
+  // Scans the whole exchange (both sides), not just the user's half - see
+  // claude-bridge.js's extractFacts for why: it now pulls durable facts
+  // about the person AND durable things the pet itself said/promised in
+  // the same pass, so the pet stays consistent with its own past claims
+  // too, not just what the person told it.
+  const transcript = `User: ${userMessage}\nPet: ${petMessage}`;
+  const { facts: newFacts, selfFacts: newSelfFacts } = await extractFacts({
     existingFacts,
-    transcript: `User: ${userMessage}`,
+    existingSelfFacts,
+    transcript,
     cwd: CLAUDE_CWD,
   });
-  if (!newFacts.length) return;
-  const merged = mergeFacts(existingFacts, newFacts);
-  await usersCollection.updateOne({ _id: userObjectId }, { $set: { facts: merged } });
+  if (!newFacts.length && !newSelfFacts.length) return;
+  const update = {};
+  if (newFacts.length) update.facts = mergeFacts(existingFacts, newFacts);
+  if (newSelfFacts.length) update.selfFacts = mergeFacts(existingSelfFacts, newSelfFacts);
+  await usersCollection.updateOne({ _id: userObjectId }, { $set: update });
 }
 if (!fs.existsSync(CLAUDE_CWD)) fs.mkdirSync(CLAUDE_CWD, { recursive: true });
 
@@ -625,18 +638,20 @@ async function start() {
       hasMore: history.length === HISTORY_LIMIT,
     });
 
-    async function callClaude(userMessage, isFirstTurn, sessionIdToUse, userFacts) {
+    async function callClaude(userMessage, isFirstTurn, sessionIdToUse, userFacts, selfFacts) {
       // Built fresh on every turn (not cached at startup) so an admin edit
       // via admin.js - a new skill, a like/dislike, today's special note -
       // takes effect on the very next message, no restart needed. userFacts
-      // is the same idea applied to what this specific person has told the
-      // pet about themselves - see extractAndSaveUserFacts below.
+      // and selfFacts are the same idea applied to what this specific
+      // person has told the pet about themselves, and what the pet itself
+      // has said/promised in past turns - see extractAndSaveUserFacts below.
       const systemPrompt = buildSystemPrompt(profile, await petAdmin.getAdminState(petAdminCollection), {
         worldProfile,
         arcState: await storyArc.getArcState(storyArcCollection),
         joinedAt: user.createdAt,
         now: new Date(),
         userFacts,
+        selfFacts,
       });
       try {
         return await askPet({
@@ -688,15 +703,6 @@ async function start() {
               },
             }
           );
-          // Fire-and-forget: scan this message for durable personal facts
-          // (name, job, family, etc.) and file them on the user document,
-          // independently of whatever the Claude CLI's own --resume session
-          // remembers. Not awaited so it never adds latency to the pet's
-          // reply; any failure is logged and otherwise harmless (see
-          // extractFacts's fail-open behavior in claude-bridge.js).
-          extractAndSaveUserFacts(user._id, userMessage).catch((err) =>
-            console.warn(`[${username}] fact extraction failed:`, err.message)
-          );
         }
 
         const freshUser = await usersCollection.findOne({ _id: user._id });
@@ -707,7 +713,8 @@ async function start() {
           userMessage,
           isFirstTurn,
           sessionIdToUse,
-          freshUser.facts || []
+          freshUser.facts || [],
+          freshUser.selfFacts || []
         );
 
         if (isFirstTurn) {
@@ -721,6 +728,20 @@ async function start() {
         socket.emit('pet-message', { text, sticker, createdAt: new Date() });
         if (sessionWasReset) {
           socket.emit('pet-error', `(${profile.name}'s memory hiccuped a little and had to restart fresh - sorry about that!)`);
+        }
+
+        // Fire-and-forget: now that both sides of this exchange exist, scan
+        // it for durable facts about the person AND durable things the pet
+        // itself just said/promised, independently of whatever the Claude
+        // CLI's own --resume session remembers. Only for real turns (a
+        // synthetic nudge has no real userMessage to extract from). Not
+        // awaited so it never adds latency to the reply already emitted
+        // above; any failure is logged and otherwise harmless (see
+        // extractFacts's fail-open behavior in claude-bridge.js).
+        if (!synthetic) {
+          extractAndSaveUserFacts(user._id, userMessage, text).catch((err) =>
+            console.warn(`[${username}] fact extraction failed:`, err.message)
+          );
         }
 
         // No tab/device for this user is currently in the foreground (all
