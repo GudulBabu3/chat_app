@@ -42,6 +42,11 @@ function chunk(array, size) {
   return out;
 }
 
+// Same idea as server.js's STORY_BEATS_CAP - keep this tighter than
+// facts/selfFacts since it's meant to reflect what's recent, not pile up
+// forever across a user's whole history.
+const STORY_BEATS_CAP = 20;
+
 async function backfillOneUser(usersCollection, messagesCollection, user) {
   const userId = user._id.toString();
   const history = await messagesCollection.find({ userId }).sort({ createdAt: 1 }).toArray();
@@ -52,30 +57,38 @@ async function backfillOneUser(usersCollection, messagesCollection, user) {
 
   let facts = user.facts || [];
   let selfFacts = user.selfFacts || [];
+  let storyBeats = user.storyBeats || [];
   const chunks = chunk(history, CHUNK_SIZE);
   console.log(`${user.username}: ${history.length} message(s) in ${chunks.length} chunk(s)...`);
 
   for (const [i, batch] of chunks.entries()) {
     const transcript = batch.map((m) => `${m.role === 'user' ? 'User' : 'Pet'}: ${m.text}`).join('\n');
-    const { facts: newFacts, selfFacts: newSelfFacts } = await extractFacts({
+    const { facts: newFacts, selfFacts: newSelfFacts, storyBeats: newStoryBeats } = await extractFacts({
       existingFacts: facts,
       existingSelfFacts: selfFacts,
+      existingStoryBeats: storyBeats,
       transcript,
       cwd: CLAUDE_CWD,
     });
     if (newFacts.length) facts = mergeFacts(facts, newFacts);
     if (newSelfFacts.length) selfFacts = mergeFacts(selfFacts, newSelfFacts);
-    if (newFacts.length || newSelfFacts.length) {
-      console.log(`  chunk ${i + 1}/${chunks.length}: +${newFacts.length} fact(s), +${newSelfFacts.length} self-fact(s)`);
+    if (newStoryBeats.length) storyBeats = mergeFacts(storyBeats, newStoryBeats, STORY_BEATS_CAP);
+    if (newFacts.length || newSelfFacts.length || newStoryBeats.length) {
+      console.log(
+        `  chunk ${i + 1}/${chunks.length}: +${newFacts.length} fact(s), +${newSelfFacts.length} self-fact(s), +${newStoryBeats.length} story beat(s)`
+      );
     } else {
       console.log(`  chunk ${i + 1}/${chunks.length}: nothing new`);
     }
   }
 
-  await usersCollection.updateOne({ _id: user._id }, { $set: { facts, selfFacts } });
-  console.log(`${user.username}: saved ${facts.length} fact(s) about them, ${selfFacts.length} self-fact(s) about the pet.`);
+  await usersCollection.updateOne({ _id: user._id }, { $set: { facts, selfFacts, storyBeats } });
+  console.log(
+    `${user.username}: saved ${facts.length} fact(s) about them, ${selfFacts.length} self-fact(s), ${storyBeats.length} story beat(s).`
+  );
   facts.forEach((f, idx) => console.log(`  fact ${idx + 1}. ${f}`));
   selfFacts.forEach((f, idx) => console.log(`  self-fact ${idx + 1}. ${f}`));
+  storyBeats.forEach((f, idx) => console.log(`  story beat ${idx + 1}. ${f}`));
 }
 
 async function main() {

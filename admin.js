@@ -24,6 +24,7 @@
 //   node admin.js arc reset
 //   node admin.js facts <username> [list|add <text>|remove <n>|clear]
 //   node admin.js selffacts <username> [list|add <text>|remove <n>|clear]
+//   node admin.js storybeats <username> [list|add <text>|remove <n>|clear]
 //
 // Quote <text>/<message> if it has spaces, e.g.:
 //   node admin.js send shyamaluncle "Guess what I did today!"
@@ -67,6 +68,7 @@ const USAGE = `Usage:
   node admin.js arc <status|start|skip|reset>
   node admin.js facts <username> [list|add <text>|remove <n>|clear]
   node admin.js selffacts <username> [list|add <text>|remove <n>|clear]
+  node admin.js storybeats <username> [list|add <text>|remove <n>|clear]
   node admin.js status`;
 
 function usageAndExit() {
@@ -241,13 +243,20 @@ async function main() {
       }
 
       case 'facts':
-      case 'selffacts': {
-        // Same shape for both: `facts` is what the pet knows about the
-        // person, `selffacts` is what the pet itself has said/promised
-        // that it should stay consistent with - see claude-bridge.js's
-        // extractFacts, which fills both automatically during live chat.
-        const field = command === 'facts' ? 'facts' : 'selfFacts';
-        const label = command === 'facts' ? 'Facts on file for' : 'Self-facts on file for';
+      case 'selffacts':
+      case 'storybeats': {
+        // Same shape for all three: `facts` is what the pet knows about
+        // the person, `selffacts` is fixed things the pet itself has
+        // said/promised, `storybeats` is the evolving freeform story it's
+        // been telling (recency-capped, unlike the other two) - see
+        // claude-bridge.js's extractFacts, which fills all three
+        // automatically during live chat.
+        const field = { facts: 'facts', selffacts: 'selfFacts', storybeats: 'storyBeats' }[command];
+        const label = {
+          facts: 'Facts on file for',
+          selffacts: 'Self-facts on file for',
+          storybeats: 'Story beats on file for',
+        }[command];
         const commandName = command;
 
         const [username, sub, ...textParts] = rest;

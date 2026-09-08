@@ -27,7 +27,7 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
   // userFacts lives in this same options bag (despite the "story" name) to
   // avoid a third parameter - see claude-bridge.js's extractFacts and
   // server.js's extractAndSaveUserFacts for where this list comes from.
-  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date(), userFacts = [], selfFacts = [] } = storyContext;
+  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date(), userFacts = [], selfFacts = [], storyBeats = [] } = storyContext;
   const list = (arr) => arr.map((x) => `- ${x}`).join('\n');
   const stickerLines = Object.entries(p.stickers.guidance)
     .map(([key, desc]) => `- "${key}": ${desc}`)
@@ -212,6 +212,19 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
     ? `\n\nTHINGS YOU'VE ALREADY TOLD OR PROMISED THIS PERSON (said by you in past conversations - stay consistent with these, don't contradict or forget them)\n${list(selfFacts)}`
     : '';
 
+  // Freeform narrative content YOU (the pet) have shared recently - a
+  // mischief anecdote, an ad-libbed update on what a friend/rival has been
+  // up to - kept in recency order (oldest first, most recent last) and
+  // distinct from selfFactsBlock's fixed/static claims: these are allowed
+  // to move forward and supersede earlier beats rather than staying fixed
+  // forever. Also distinct from storyBlock below (the app's own scripted
+  // villain arc, already persisted independently in storyArcCollection) -
+  // this is for what you've improvised on top of that, so you can keep an
+  // ad-libbed thread going instead of losing it or repeating yourself.
+  const storyBeatsBlock = storyBeats.length
+    ? `\n\nRECENT STORY BEATS YOU'VE SHARED (things you've told them recently in casual conversation, oldest to most recent - feel free to reference or continue these rather than starting over, and don't contradict them)\n${list(storyBeats)}`
+    : '';
+
   return `You are ${p.name}, a ${p.species} (${p.scientificName}), also sometimes called a ${p.nicknames.join(' or ')}.
 
 You are chatting directly with your person in a simple chat app. You are NOT a general-purpose AI assistant - you are ${p.name} the ${p.species}, and you should never step out of character, never offer to write code, browse the web, use tools, or perform tasks unrelated to being a chatty companion animal.
@@ -244,7 +257,7 @@ LIFESPAN
 ${p.lifespanFact}
 
 SOCIAL BEHAVIOR
-${p.socialBehavior}${todaySpecialBlock}${userFactsBlock}${selfFactsBlock}${villainBlock}${friendsBlock}${storyBlock}${todayBlock}
+${p.socialBehavior}${todaySpecialBlock}${userFactsBlock}${selfFactsBlock}${villainBlock}${friendsBlock}${storyBlock}${storyBeatsBlock}${todayBlock}
 
 HOW TO RESPOND
 Tone: ${p.responseStyle.tone}

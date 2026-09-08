@@ -67,29 +67,39 @@ const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
 // a --resume ever fails, get replaced with a completely fresh session that
 // remembers nothing at all. This list is rebuilt into the system prompt on
 // every single turn (see callClaude above), so it survives either case.
+// storyBeats is capped tighter than facts/selfFacts (20 vs 60) since it's
+// meant to track what's RECENT, not accumulate forever - old improvised
+// asides naturally aging out is the point, unlike a person's name or a
+// standing promise, which should stick around indefinitely.
+const STORY_BEATS_CAP = 20;
+
 async function extractAndSaveUserFacts(userObjectId, userMessage, petMessage) {
   const current = await usersCollection.findOne(
     { _id: userObjectId },
-    { projection: { facts: 1, selfFacts: 1 } }
+    { projection: { facts: 1, selfFacts: 1, storyBeats: 1 } }
   );
   const existingFacts = current?.facts || [];
   const existingSelfFacts = current?.selfFacts || [];
+  const existingStoryBeats = current?.storyBeats || [];
   // Scans the whole exchange (both sides), not just the user's half - see
   // claude-bridge.js's extractFacts for why: it now pulls durable facts
-  // about the person AND durable things the pet itself said/promised in
-  // the same pass, so the pet stays consistent with its own past claims
-  // too, not just what the person told it.
+  // about the person, durable things the pet itself said/promised, AND
+  // evolving freeform story beats the pet shared, all in the same pass,
+  // so the pet stays consistent with (and can continue) its own past
+  // claims and narrative threads too, not just what the person told it.
   const transcript = `User: ${userMessage}\nPet: ${petMessage}`;
-  const { facts: newFacts, selfFacts: newSelfFacts } = await extractFacts({
+  const { facts: newFacts, selfFacts: newSelfFacts, storyBeats: newStoryBeats } = await extractFacts({
     existingFacts,
     existingSelfFacts,
+    existingStoryBeats,
     transcript,
     cwd: CLAUDE_CWD,
   });
-  if (!newFacts.length && !newSelfFacts.length) return;
+  if (!newFacts.length && !newSelfFacts.length && !newStoryBeats.length) return;
   const update = {};
   if (newFacts.length) update.facts = mergeFacts(existingFacts, newFacts);
   if (newSelfFacts.length) update.selfFacts = mergeFacts(existingSelfFacts, newSelfFacts);
+  if (newStoryBeats.length) update.storyBeats = mergeFacts(existingStoryBeats, newStoryBeats, STORY_BEATS_CAP);
   await usersCollection.updateOne({ _id: userObjectId }, { $set: update });
 }
 if (!fs.existsSync(CLAUDE_CWD)) fs.mkdirSync(CLAUDE_CWD, { recursive: true });
@@ -638,13 +648,14 @@ async function start() {
       hasMore: history.length === HISTORY_LIMIT,
     });
 
-    async function callClaude(userMessage, isFirstTurn, sessionIdToUse, userFacts, selfFacts) {
+    async function callClaude(userMessage, isFirstTurn, sessionIdToUse, userFacts, selfFacts, storyBeats) {
       // Built fresh on every turn (not cached at startup) so an admin edit
       // via admin.js - a new skill, a like/dislike, today's special note -
-      // takes effect on the very next message, no restart needed. userFacts
-      // and selfFacts are the same idea applied to what this specific
-      // person has told the pet about themselves, and what the pet itself
-      // has said/promised in past turns - see extractAndSaveUserFacts below.
+      // takes effect on the very next message, no restart needed. userFacts,
+      // selfFacts and storyBeats are the same idea applied to what this
+      // specific person has told the pet about themselves, what the pet
+      // itself has said/promised, and what freeform story it's been
+      // telling - see extractAndSaveUserFacts below.
       const systemPrompt = buildSystemPrompt(profile, await petAdmin.getAdminState(petAdminCollection), {
         worldProfile,
         arcState: await storyArc.getArcState(storyArcCollection),
@@ -652,6 +663,7 @@ async function start() {
         now: new Date(),
         userFacts,
         selfFacts,
+        storyBeats,
       });
       try {
         return await askPet({
@@ -714,7 +726,8 @@ async function start() {
           isFirstTurn,
           sessionIdToUse,
           freshUser.facts || [],
-          freshUser.selfFacts || []
+          freshUser.selfFacts || [],
+          freshUser.storyBeats || []
         );
 
         if (isFirstTurn) {
