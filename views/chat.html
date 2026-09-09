@@ -12,7 +12,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="TukuruMukuru" />
-<link rel="stylesheet" href="/style.css" />
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/style.css?v=6" />
 </head>
 <body>
   <div id="chat-screen">
@@ -36,8 +37,9 @@
           <span id="pet-status">connecting...</span>
         </div>
         <div class="header-actions">
-          <button id="voice-btn" title="Enable spoken replies" aria-label="Enable spoken replies" data-label="Sound off" class="control-btn hidden">🔇</button>
-          <button id="notify-btn" title="Get notified when TukuruMukuru checks in" aria-label="Enable notifications" data-label="Alerts off" class="control-btn hidden">🔕</button>
+          <button id="theme-btn" type="button" title="Switch to dark mode" aria-label="Switch to dark mode" aria-pressed="false" data-label="Dark mode" class="header-control control-btn theme-toggle">☾</button>
+          <button id="voice-btn" title="Enable spoken replies" aria-label="Enable spoken replies" data-label="Sound off" class="header-control control-btn hidden">🔇</button>
+          <button id="notify-btn" title="Get notified when TukuruMukuru checks in" aria-label="Enable notifications" data-label="Alerts off" class="header-control control-btn hidden">🔕</button>
           <button id="logout-btn" title="Log out"><span class="logout-icon" aria-hidden="true">↗</span><span class="logout-label">Log out</span></button>
         </div>
       </header>
