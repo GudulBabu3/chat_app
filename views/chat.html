@@ -5,34 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>TukuruMukuru</title>
 <link rel="manifest" href="/manifest.webmanifest" />
-<meta name="theme-color" content="#1b120c" />
+<meta name="theme-color" content="#ff6b4a" />
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="TukuruMukuru" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="chat-screen">
-    <header>
-      <div class="avatar">🐾</div>
-      <div class="header-text">
-        <h1 id="pet-name">TukuruMukuru</h1>
-        <span id="pet-status">connecting...</span>
+    <aside class="buddy-panel" aria-hidden="true">
+      <div class="buddy-copy">
+        <span class="eyebrow">Your red panda pal</span>
+        <h2>Big stories.<br />Tiny paws.</h2>
+        <p>There’s always room for one more adventure.</p>
       </div>
-      <button id="voice-btn" title="Toggle spoken replies" class="hidden">🔊</button>
-      <button id="notify-btn" title="Get notified when TukuruMukuru checks in" class="hidden">🔔</button>
-      <button id="logout-btn" title="Log out">Log out</button>
-    </header>
-    <div id="messages"></div>
-    <div id="typing-indicator" class="hidden">TukuruMukuru is typing<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
-    <form id="message-form">
-      <button type="button" id="mic-btn" title="Speak your message" class="hidden">🎤</button>
-      <input id="message-input" type="text" placeholder="Say something..." autocomplete="off" maxlength="2000" />
-      <button type="submit">Send</button>
-    </form>
+      <div class="mascot-stage">
+        <span class="spark spark-one">✦</span><span class="spark spark-two">★</span><span class="spark spark-three">✦</span>
+        <img src="/stickers/greeting.webp" alt="" />
+      </div>
+      <div class="mood-strip"><span>curious</span><span>kind</span><span>silly</span></div>
+    </aside>
+    <main class="chat-panel">
+      <header>
+        <div class="avatar"><img src="/stickers/neutral.webp" alt="" /></div>
+        <div class="header-text">
+          <h1 id="pet-name">TukuruMukuru</h1>
+          <span id="pet-status">connecting...</span>
+        </div>
+        <div class="header-actions">
+          <button id="voice-btn" title="Toggle spoken replies" aria-label="Toggle spoken replies" data-label="Sound on" class="control-btn hidden">🔊</button>
+          <button id="notify-btn" title="Get notified when TukuruMukuru checks in" aria-label="Toggle notifications" data-label="Notify me" class="control-btn hidden">🔔</button>
+          <button id="logout-btn" title="Log out"><span class="logout-icon" aria-hidden="true">↗</span><span class="logout-label">Log out</span></button>
+        </div>
+      </header>
+      <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
+      <div id="typing-indicator" class="hidden" role="status">TukuruMukuru is thinking<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+      <form id="message-form">
+        <button type="button" id="mic-btn" title="Speak your message" aria-label="Speak your message">🎤</button>
+        <label class="sr-only" for="message-input">Message TukuruMukuru</label>
+        <input id="message-input" type="text" placeholder="Tell me anything…" autocomplete="off" maxlength="2000" />
+        <button type="submit" aria-label="Send message"><span>Send</span><span class="send-arrow" aria-hidden="true">↑</span></button>
+      </form>
+    </main>
   </div>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/push-client.js"></script>

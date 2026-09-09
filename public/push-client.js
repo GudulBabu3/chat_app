@@ -34,9 +34,12 @@
 
   function setButtonState(subscribed) {
     btn.classList.toggle('active', subscribed);
+    btn.textContent = subscribed ? '🔔' : '🔕';
+    btn.dataset.label = subscribed ? 'Alerts on' : 'Alerts off';
     btn.title = subscribed
       ? "You'll get notified when TukuruMukuru checks in"
       : 'Get notified when TukuruMukuru checks in';
+    btn.setAttribute('aria-label', btn.title);
   }
 
   async function subscribe() {

@@ -14,7 +14,7 @@
 //
 // CACHE_VERSION: bump this string whenever the precache list below changes,
 // so the old cache is dropped on activate instead of lingering forever.
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v3-chat-controls';
 const STATIC_CACHE = `tukurumukuru-static-${CACHE_VERSION}`;
 const OFFLINE_URL = '/offline.html';
 

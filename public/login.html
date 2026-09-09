@@ -5,26 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Log in - TukuruMukuru</title>
 <link rel="manifest" href="/manifest.webmanifest" />
-<meta name="theme-color" content="#1b120c" />
+<meta name="theme-color" content="#ff6b4a" />
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="TukuruMukuru" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="login-body">
-  <div class="login-card">
-    <div class="avatar large">🐾</div>
-    <h1>TukuruMukuru</h1>
-    <p class="subtitle">Log in to chat</p>
-    <form id="login-form">
-      <input id="username" type="text" placeholder="Username" autocomplete="username" required />
-      <input id="password" type="password" placeholder="Password" autocomplete="current-password" required />
-      <button type="submit">Log in</button>
-      <p id="login-error" class="error"></p>
-    </form>
+  <div class="login-shell">
+    <div class="login-mascot" aria-hidden="true">
+      <span class="login-scribble">HELLO!</span>
+      <img src="/stickers/greeting.webp" alt="" />
+    </div>
+    <div class="login-card">
+      <span class="eyebrow">Welcome to the den</span>
+      <h1>TukuruMukuru</h1>
+      <p class="subtitle">Your red panda pal is ready to chat.</p>
+      <form id="login-form">
+        <label for="username">Your username</label>
+        <input id="username" type="text" placeholder="Type it here" autocomplete="username" required />
+        <label for="password">Your password</label>
+        <input id="password" type="password" placeholder="Keep it secret" autocomplete="current-password" required />
+        <button type="submit">Let’s chat <span aria-hidden="true">→</span></button>
+        <p id="login-error" class="error" role="alert"></p>
+      </form>
+    </div>
   </div>
   <script src="/login-client.js"></script>
   <script>

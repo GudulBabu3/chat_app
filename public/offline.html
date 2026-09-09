@@ -4,29 +4,18 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Offline - TukuruMukuru</title>
+<meta name="theme-color" content="#ff6b4a" />
 <link rel="stylesheet" href="/style.css" />
-<style>
-  #retry-btn {
-    width: 100%;
-    padding: 10px 14px;
-    margin-top: 12px;
-    border: none;
-    border-radius: 10px;
-    background: #c1522b;
-    color: #1b120c;
-    font-weight: 600;
-    font-size: 14px;
-    cursor: pointer;
-  }
-  #retry-btn:hover { background: #d96a41; }
-</style>
 </head>
 <body class="login-body">
-  <div class="login-card">
-    <div class="avatar large">🐾</div>
-    <h1>You're offline</h1>
-    <p class="subtitle">TukuruMukuru can't reach the server right now. Check your connection and try again.</p>
-    <button id="retry-btn" type="button">Retry</button>
+  <div class="login-shell offline-shell">
+    <div class="login-mascot" aria-hidden="true"><img src="/stickers/sad.webp" alt="" /></div>
+    <div class="login-card">
+      <span class="eyebrow">Tiny connection hiccup</span>
+      <h1>You’re offline</h1>
+      <p class="subtitle">TukuruMukuru can’t reach the den right now. Check your connection and try again.</p>
+      <button id="retry-btn" type="button">Try again <span aria-hidden="true">↻</span></button>
+    </div>
   </div>
   <script>
     document.getElementById('retry-btn').addEventListener('click', () => window.location.reload());

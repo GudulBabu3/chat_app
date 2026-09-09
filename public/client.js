@@ -70,7 +70,9 @@ function createMessageEl(text, who, sticker) {
     playBtn.type = 'button';
     playBtn.className = 'msg-play-btn';
     playBtn.title = 'Play this message';
-    playBtn.textContent = '▶️';
+    playBtn.setAttribute('aria-label', 'Play this message');
+    playBtn.dataset.label = 'Listen';
+    playBtn.textContent = '▶';
     playBtn.addEventListener('click', () => playMessageAudio(text, sticker, playBtn));
     row.appendChild(playBtn);
   }
@@ -262,6 +264,11 @@ if (micBtn && SpeechRecognitionImpl) {
   });
 
   micBtn.classList.remove('hidden');
+} else if (micBtn) {
+  micBtn.disabled = true;
+  micBtn.classList.add('unsupported');
+  micBtn.title = 'Voice input is not supported in this browser';
+  micBtn.setAttribute('aria-label', 'Voice input is not supported in this browser');
 }
 
 // --- Voice output (text-to-speech, emotion-matched via Azure) ---
@@ -278,7 +285,8 @@ if (micBtn && SpeechRecognitionImpl) {
 // is fine since replaying is a deliberate, occasional tap rather than
 // something that happens in bulk.
 const VOICE_PREF_KEY = 'tukuru-voice-enabled';
-let voiceEnabled = localStorage.getItem(VOICE_PREF_KEY) === 'true';
+const savedVoicePreference = localStorage.getItem(VOICE_PREF_KEY);
+let voiceEnabled = savedVoicePreference === null ? true : savedVoicePreference === 'true';
 let currentAudio = null;
 let currentPlayBtn = null;
 
@@ -286,12 +294,16 @@ function updateVoiceBtn() {
   if (!voiceBtn) return;
   voiceBtn.textContent = voiceEnabled ? '🔊' : '🔇';
   voiceBtn.classList.toggle('active', voiceEnabled);
+  voiceBtn.dataset.label = voiceEnabled ? 'Sound on' : 'Sound off';
   voiceBtn.title = voiceEnabled ? 'Voice replies on - tap to mute' : 'Voice replies off - tap to enable';
+  voiceBtn.setAttribute('aria-label', voiceBtn.title);
 }
 
 function setBtnPlaying(btn, playing) {
   if (!btn) return;
-  btn.textContent = playing ? '⏸️' : '▶️';
+  btn.textContent = playing ? '⏸' : '▶';
+  btn.dataset.label = playing ? 'Pause' : 'Listen';
+  btn.setAttribute('aria-label', playing ? 'Pause this message' : 'Play this message');
   btn.classList.toggle('playing', playing);
 }
 
