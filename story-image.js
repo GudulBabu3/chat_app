@@ -36,7 +36,12 @@ function buildImagePrompt({ text, title }) {
     `Children's-book illustration, warm and comedic, square composition, no text or lettering anywhere in the image. ` +
     `Scene: ${text} ` +
     `TukuruMukuru is the protagonist, a red panda. Dino-Day is the villain, a tall dinosaur wearing a pink shirt, ` +
-    `with a scary growl played for laughs rather than menace.`
+    `with a scary growl played for laughs rather than menace. ` +
+    `Character rules, important: if the scene mentions Kevin, Bob, or Stuart, do not depict them at all, in any form - ` +
+    `leave them out of the illustration entirely, even in the background, and focus the composition on TukuruMukuru ` +
+    `and Dino-Day (and any other original characters) instead. If the scene mentions Po, depict him only as a plain, ` +
+    `original cartoon panda - round and friendly, with no specific outfit, markings, or accessories - and never use ` +
+    `the name "Po" or reference any existing panda character's identity.`
   );
 }
 
