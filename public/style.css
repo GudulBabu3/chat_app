@@ -205,6 +205,9 @@ header {
 .login-card .error { min-height: 20px; margin: 12px 0 0; color: #b4233d; font-family: system-ui, sans-serif; font-size: 0.85rem; font-weight: 700; }
 .offline-shell .login-mascot { background-color: var(--aqua); }
 .offline-shell .login-mascot::before { background: #bdece7; }
+.admin-login-shell .login-mascot { background-color: var(--berry); }
+.admin-login-shell .login-mascot::before { background: var(--aqua); }
+.admin-login-shell .login-scribble { color: white; font-size: 1rem; }
 
 @keyframes blink { 0%, 80%, 100% { opacity: 0; } 40% { opacity: 1; } }
 @keyframes mascot-bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-8px) rotate(1deg); } }

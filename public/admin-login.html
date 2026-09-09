@@ -9,15 +9,22 @@
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="login-body">
-  <div class="login-card">
-    <div class="avatar large">🛠️</div>
-    <h1>Admin panel</h1>
-    <p class="subtitle">TukuruMukuru</p>
-    <form id="login-form">
-      <input id="password" type="password" placeholder="Admin password" autocomplete="current-password" required autofocus />
-      <button type="submit">Enter</button>
-      <p id="login-error" class="error"></p>
-    </form>
+  <div class="login-shell admin-login-shell">
+    <div class="login-mascot" aria-hidden="true">
+      <span class="login-scribble">GROWN-UPS ONLY</span>
+      <img src="/stickers/curious.webp" alt="" />
+    </div>
+    <div class="login-card">
+      <span class="eyebrow">Keeper access</span>
+      <h1>Admin panel</h1>
+      <p class="subtitle">Manage the TukuruMukuru den.</p>
+      <form id="login-form">
+        <label for="password">Admin password</label>
+        <input id="password" type="password" placeholder="Enter your password" autocomplete="current-password" required autofocus />
+        <button type="submit">Enter the den <span aria-hidden="true">→</span></button>
+        <p id="login-error" class="error" role="alert"></p>
+      </form>
+    </div>
   </div>
   <script src="/admin-login-client.js"></script>
 </body>

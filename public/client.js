@@ -286,7 +286,7 @@ if (micBtn && SpeechRecognitionImpl) {
 // something that happens in bulk.
 const VOICE_PREF_KEY = 'tukuru-voice-enabled';
 const savedVoicePreference = localStorage.getItem(VOICE_PREF_KEY);
-let voiceEnabled = savedVoicePreference === null ? true : savedVoicePreference === 'true';
+let voiceEnabled = savedVoicePreference === 'true';
 let currentAudio = null;
 let currentPlayBtn = null;
 
