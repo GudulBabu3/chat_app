@@ -38,7 +38,7 @@ function scrollToBottom() {
 // shared by renderMessage (appends at the bottom, for live/initial messages)
 // and prependMessages (inserts at the top, for older history loaded by
 // scrolling up) so both paths stay in sync.
-function createMessageEl(text, who, sticker) {
+function createMessageEl(text, who, sticker, media) {
   const div = document.createElement('div');
   div.className = `msg ${who}`;
 
@@ -61,6 +61,25 @@ function createMessageEl(text, who, sticker) {
   textEl.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
   row.appendChild(textEl);
 
+  // Optional AI-generated/found image or short video riding this message -
+  // set by story-beat-scheduler.js (story artwork) or a future media drop.
+  // Rendered below the text bubble, inside the same message, not as a
+  // separate bubble.
+  if (media && media.url) {
+    const mediaEl = document.createElement(media.type === 'video' ? 'video' : 'img');
+    mediaEl.className = 'msg-media';
+    mediaEl.src = media.url;
+    if (media.type === 'video') {
+      mediaEl.muted = true;
+      mediaEl.loop = true;
+      mediaEl.playsInline = true;
+      mediaEl.controls = true;
+    } else {
+      mediaEl.alt = '';
+    }
+    div.appendChild(mediaEl);
+  }
+
   // Per-message replay button - lets you hear any pet reply on demand, not
   // just whichever one just arrived live. Hidden via CSS (#messages.tts-enabled)
   // until /api/tts/status confirms voice is actually configured. No audio is
@@ -81,8 +100,8 @@ function createMessageEl(text, who, sticker) {
   return div;
 }
 
-function renderMessage(text, who, sticker) {
-  const div = createMessageEl(text, who, sticker);
+function renderMessage(text, who, sticker, media) {
+  const div = createMessageEl(text, who, sticker, media);
   messagesEl.appendChild(div);
   scrollToBottom();
   return div;
@@ -93,7 +112,7 @@ function renderMessage(text, who, sticker) {
 function prependMessages(items) {
   const frag = document.createDocumentFragment();
   items.forEach((m) => {
-    frag.appendChild(createMessageEl(m.text, m.who, m.sticker));
+    frag.appendChild(createMessageEl(m.text, m.who, m.sticker, m.media));
   });
   messagesEl.insertBefore(frag, messagesEl.firstChild);
 }
@@ -176,7 +195,7 @@ messagesEl.addEventListener('scroll', () => {
 socket.on('history', (payload) => {
   const messages = (payload && payload.messages) || [];
   messagesEl.innerHTML = '';
-  messages.forEach((m) => renderMessage(m.text, m.who, m.sticker));
+  messages.forEach((m) => renderMessage(m.text, m.who, m.sticker, m.media));
   trackOldest(messages);
   hasMoreHistory = Boolean(payload && payload.hasMore);
 });
@@ -186,7 +205,7 @@ socket.on('user-message-echo', (payload) => {
 });
 
 socket.on('pet-message', (payload) => {
-  const div = renderMessage(payload.text, 'pet', payload.sticker);
+  const div = renderMessage(payload.text, 'pet', payload.sticker, payload.media);
   if (voiceEnabled) playMessageAudio(payload.text, payload.sticker, div.querySelector('.msg-play-btn'));
 });
 

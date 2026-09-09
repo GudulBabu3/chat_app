@@ -21,6 +21,7 @@ const { MongoClient } = require('mongodb');
 const storyArc = require('./story-arc');
 const { loadWorldProfile } = require('./persona');
 const { generateStoryPremise } = require('./claude-bridge');
+const storyImage = require('./story-image');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
@@ -50,6 +51,19 @@ async function main() {
       console.log(`[story] arc advanced: "${before.phase}" -> "${after.phase}"`, after);
     } else {
       console.log(`[story] no phase change (still "${after.phase}").`);
+    }
+
+    // Runs after the arc's own state is settled for today, well ahead of
+    // story-beat-scheduler.js's 3:15am send, so the image (if it succeeds)
+    // is already sitting in Mongo by the time users get their text beat.
+    // Wrapped defensively - a Mongo hiccup here should never fail the whole
+    // phase-advance run; story-image.js's own try/catch already covers the
+    // network call to NPN-old failing or timing out.
+    try {
+      await storyImage.cleanupOldStoryImages(db, new Date());
+      await storyImage.getOrGenerateTodaysStoryImage(db, after, new Date());
+    } catch (err) {
+      console.warn('[story] story-image step failed (non-fatal):', err.message);
     }
   } finally {
     await client.close();

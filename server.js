@@ -325,6 +325,7 @@ app.get('/api/messages', requireAuth, async (req, res) => {
       text: m.text,
       who: m.role === 'user' ? 'own' : 'pet',
       sticker: m.role === 'pet' ? m.sticker || DEFAULT_STICKER : undefined,
+      media: m.media || undefined,
       createdAt: m.createdAt,
     })),
     // Same page-size heuristic as the socket 'history' event: a full page
@@ -418,12 +419,12 @@ async function start() {
     if (!INTERNAL_ADMIN_SECRET || req.get('X-Internal-Secret') !== INTERNAL_ADMIN_SECRET) {
       return res.status(403).json({ ok: false, error: 'forbidden' });
     }
-    const { userId, text, sticker } = req.body || {};
+    const { userId, text, sticker, media } = req.body || {};
     if (!userId || !text) {
       return res.status(400).json({ ok: false, error: 'userId and text required' });
     }
 
-    notifyUserSockets(userId, { text, sticker: sticker || DEFAULT_STICKER, createdAt: new Date() });
+    notifyUserSockets(userId, { text, sticker: sticker || DEFAULT_STICKER, media: media || undefined, createdAt: new Date() });
 
     if (!isUserVisible(userId)) {
       sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: text, url: '/' }).catch(
@@ -741,6 +742,7 @@ async function start() {
         text: m.text,
         who: m.role === 'user' ? 'own' : 'pet',
         sticker: m.role === 'pet' ? m.sticker || DEFAULT_STICKER : undefined,
+        media: m.media || undefined,
         createdAt: m.createdAt,
       })),
       // Tells the client whether scrolling to the top is worth wiring up at

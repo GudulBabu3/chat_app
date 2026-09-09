@@ -24,6 +24,7 @@ const { loadProfile, loadWorldProfile, buildSystemPrompt } = require('./persona'
 const { askPet } = require('./claude-bridge');
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
+const storyImage = require('./story-image');
 const { notifyLiveServer } = require('./notify-live');
 const { todayKey } = require('./special-dates');
 
@@ -97,6 +98,14 @@ async function main() {
     const adminState = await petAdmin.getAdminState(petAdminCollection);
     const today = todayKey(now);
 
+    // Looked up once and reused for every user below - it's one shared image
+    // for the whole app (see story-image.js), not generated per user. Just a
+    // read here: story-scheduler.js is what actually generates it, earlier
+    // in the morning. If it's missing (generation failed, or hasn't run yet
+    // today), media simply stays undefined and users get the text beat alone.
+    const todaysImage = await db.collection('dailyStoryImage').findOne({ dateKey: today });
+    const media = todaysImage ? { type: 'image', url: todaysImage.url } : undefined;
+
     // hasClaudeSession: true - same base eligibility as nudge-scheduler.js
     // (only message people who've actually started talking to TukuruMukuru
     // before). lastStoryBeatDate !== today covers both "never sent" (field
@@ -130,11 +139,12 @@ async function main() {
           role: 'pet',
           text,
           sticker,
+          media,
           createdAt: new Date(),
           storyBeat: true,
         });
 
-        await notifyLiveServer({ userId, text, sticker });
+        await notifyLiveServer({ userId, text, sticker, media });
         await usersCollection.updateOne({ _id: user._id }, { $set: { lastStoryBeatDate: today } });
 
         console.log(`[story-beat] sent to user ${userId}.`);
