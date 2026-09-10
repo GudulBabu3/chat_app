@@ -80,8 +80,8 @@ if (moodExpandBtn && chatHeader) {
     const expanded = chatHeader.classList.toggle('mood-expanded');
     moodExpandBtn.setAttribute('aria-expanded', String(expanded));
     moodExpandBtn.textContent = expanded ? '↙' : '↗';
-    moodExpandBtn.dataset.label = expanded ? 'Close mood' : 'Big mood';
-    moodExpandBtn.title = expanded ? 'Make TukuruMukuru smaller' : 'Make TukuruMukuru bigger';
+    moodExpandBtn.dataset.label = expanded ? 'Tuck in' : 'Peek';
+    moodExpandBtn.title = expanded ? 'Tuck TukuruMukuru back in' : 'Peek at TukuruMukuru';
     moodExpandBtn.setAttribute('aria-label', moodExpandBtn.title);
   });
 }
