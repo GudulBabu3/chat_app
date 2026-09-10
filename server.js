@@ -272,6 +272,10 @@ app.get('/', requireAuth, (_req, res) => {
   res.sendFile(path.join(__dirname, 'views', 'chat.html'));
 });
 
+app.get('/settings', requireAuth, (_req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'settings.html'));
+});
+
 app.get('/api/pet', requireAuth, (req, res) => {
   res.json({ name: profile.name, species: profile.species, username: req.session.username });
 });

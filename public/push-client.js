@@ -1,5 +1,5 @@
-// Handles the "notify me when TukuruMukuru checks in" button in chat.html.
-// Loaded before client.js; exposes nothing global, just wires up #notify-btn.
+// Handles the "notify me when TukuruMukuru checks in" control wherever a
+// #notify-btn is present (currently the protected Settings page).
 //
 // Note for iOS: Safari only allows Web Push for a PWA that's been added to
 // the home screen (iOS 16.4+) - it will not work for a page open in a
@@ -34,12 +34,13 @@
 
   function setButtonState(subscribed) {
     btn.classList.toggle('active', subscribed);
-    btn.textContent = subscribed ? '🔔' : '🔕';
+    btn.textContent = subscribed ? '🔔 On' : '🔕 Off';
     btn.dataset.label = subscribed ? 'Alerts on' : 'Alerts off';
     btn.title = subscribed
       ? "You'll get notified when TukuruMukuru checks in"
       : 'Get notified when TukuruMukuru checks in';
     btn.setAttribute('aria-label', btn.title);
+    btn.setAttribute('aria-pressed', String(subscribed));
   }
 
   async function subscribe() {

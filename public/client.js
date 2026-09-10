@@ -1,14 +1,15 @@
 const socket = io();
 
 const messagesEl = document.getElementById('messages');
-const statusEl = document.getElementById('pet-status');
 const petNameEl = document.getElementById('pet-name');
 const typingEl = document.getElementById('typing-indicator');
 const form = document.getElementById('message-form');
 const input = document.getElementById('message-input');
-const logoutBtn = document.getElementById('logout-btn');
 const micBtn = document.getElementById('mic-btn');
-const voiceBtn = document.getElementById('voice-btn');
+const chatHeader = document.getElementById('chat-header');
+const headerMoodImage = document.getElementById('header-mood-image');
+const buddyMoodImage = document.getElementById('buddy-mood-image');
+const moodExpandBtn = document.getElementById('mood-expand-btn');
 
 // Keep this in sync with pet-profile.json's "stickers.guidance" keys.
 // Anything outside this list (missing, corrupted, future-mismatched) falls
@@ -18,10 +19,71 @@ const STICKER_KEYS = new Set([
   'sleepy', 'napping', 'hungry', 'startled', 'annoyed', 'laughing', 'sad',
 ]);
 const DEFAULT_STICKER = 'neutral';
+const STICKER_VARIANT_COUNT = 2;
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const lastStickerVariant = new Map();
 
-function stickerSrc(sticker) {
+function nextStickerVariant(sticker) {
   const key = STICKER_KEYS.has(sticker) ? sticker : DEFAULT_STICKER;
-  return `/stickers/${key}.webp`;
+  const next = (lastStickerVariant.get(key) || 1) === 1 ? 2 : 1;
+  lastStickerVariant.set(key, next);
+  return next;
+}
+
+function stableStickerVariant(seed) {
+  const value = String(seed || '');
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return (Math.abs(hash) % STICKER_VARIANT_COUNT) + 1;
+}
+
+function stickerSrc(sticker, variant = 1, animated = false) {
+  const key = STICKER_KEYS.has(sticker) ? sticker : DEFAULT_STICKER;
+  const suffix = variant > 1 ? `-${variant}` : '';
+  const extension = animated && !prefersReducedMotion ? 'gif' : 'webp';
+  return `/stickers/${key}${suffix}.${extension}`;
+}
+
+function friendlyMoodName(sticker) {
+  if (sticker === 'napping') return 'sleepy';
+  return STICKER_KEYS.has(sticker) ? sticker : DEFAULT_STICKER;
+}
+
+// The newest pet sticker is also the app's current expression. This keeps
+// both the compact header avatar and the larger desktop mascot alive even
+// while the conversation itself is idle.
+function setCurrentMood(sticker, variant = 1, animate = true) {
+  const mood = STICKER_KEYS.has(sticker) ? sticker : DEFAULT_STICKER;
+  const friendlyMood = friendlyMoodName(mood);
+  const alt = `TukuruMukuru is feeling ${friendlyMood}`;
+
+  if (chatHeader) chatHeader.dataset.mood = mood;
+  [headerMoodImage, buddyMoodImage].forEach((img) => {
+    if (!img) return;
+    img.src = stickerSrc(mood, variant, animate);
+    img.alt = img === buddyMoodImage ? alt : '';
+    if (animate) {
+      img.classList.remove('mood-changing');
+      void img.offsetWidth;
+      img.classList.add('mood-changing');
+      img.addEventListener('animationend', () => img.classList.remove('mood-changing'), { once: true });
+    }
+    img.onerror = () => {
+      img.onerror = null;
+      img.src = stickerSrc(mood, variant, false);
+    };
+  });
+}
+
+if (moodExpandBtn && chatHeader) {
+  moodExpandBtn.addEventListener('click', () => {
+    const expanded = chatHeader.classList.toggle('mood-expanded');
+    moodExpandBtn.setAttribute('aria-expanded', String(expanded));
+    moodExpandBtn.textContent = expanded ? '↙' : '↗';
+    moodExpandBtn.dataset.label = expanded ? 'Close mood' : 'Big mood';
+    moodExpandBtn.title = expanded ? 'Make TukuruMukuru smaller' : 'Make TukuruMukuru bigger';
+    moodExpandBtn.setAttribute('aria-label', moodExpandBtn.title);
+  });
 }
 
 function escapeHtml(str) {
@@ -38,17 +100,22 @@ function scrollToBottom() {
 // shared by renderMessage (appends at the bottom, for live/initial messages)
 // and prependMessages (inserts at the top, for older history loaded by
 // scrolling up) so both paths stay in sync.
-function createMessageEl(text, who, sticker) {
+function createMessageEl(text, who, sticker, options = {}) {
   const div = document.createElement('div');
   div.className = `msg ${who}`;
 
   if (who === 'pet') {
+    const mood = STICKER_KEYS.has(sticker) ? sticker : DEFAULT_STICKER;
+    const variant = options.variant || nextStickerVariant(mood);
     const img = document.createElement('img');
     img.className = 'sticker-img';
-    img.src = stickerSrc(sticker);
-    img.alt = sticker || DEFAULT_STICKER;
+    img.src = stickerSrc(mood, variant, Boolean(options.animated));
+    img.alt = friendlyMoodName(mood);
+    img.dataset.sticker = mood;
+    img.dataset.variant = String(variant);
     img.onerror = () => {
-      if (img.src.indexOf(DEFAULT_STICKER) === -1) img.src = stickerSrc(DEFAULT_STICKER);
+      img.onerror = null;
+      img.src = stickerSrc(mood, variant, false);
     };
     div.appendChild(img);
   }
@@ -81,8 +148,8 @@ function createMessageEl(text, who, sticker) {
   return div;
 }
 
-function renderMessage(text, who, sticker) {
-  const div = createMessageEl(text, who, sticker);
+function renderMessage(text, who, sticker, options) {
+  const div = createMessageEl(text, who, sticker, options);
   messagesEl.appendChild(div);
   scrollToBottom();
   return div;
@@ -93,7 +160,8 @@ function renderMessage(text, who, sticker) {
 function prependMessages(items) {
   const frag = document.createDocumentFragment();
   items.forEach((m) => {
-    frag.appendChild(createMessageEl(m.text, m.who, m.sticker));
+    const variant = m.who === 'pet' ? stableStickerVariant(m.createdAt || m.text) : undefined;
+    frag.appendChild(createMessageEl(m.text, m.who, m.sticker, { variant }));
   });
   messagesEl.insertBefore(frag, messagesEl.firstChild);
 }
@@ -115,12 +183,7 @@ function reportVisibility() {
 document.addEventListener('visibilitychange', reportVisibility);
 
 socket.on('connect', () => {
-  statusEl.textContent = 'online';
   reportVisibility(); // sync current state right away - don't wait for the next tab switch
-});
-
-socket.on('disconnect', () => {
-  statusEl.textContent = 'disconnected - trying to reconnect...';
 });
 
 socket.on('auth-error', () => {
@@ -176,7 +239,23 @@ messagesEl.addEventListener('scroll', () => {
 socket.on('history', (payload) => {
   const messages = (payload && payload.messages) || [];
   messagesEl.innerHTML = '';
-  messages.forEach((m) => renderMessage(m.text, m.who, m.sticker));
+  lastStickerVariant.clear();
+  let latestPetPresentation = null;
+  messages.forEach((m) => {
+    const div = renderMessage(m.text, m.who, m.sticker);
+    const stickerImage = div.querySelector('.sticker-img');
+    if (stickerImage) {
+      latestPetPresentation = {
+        sticker: stickerImage.dataset.sticker,
+        variant: Number(stickerImage.dataset.variant) || 1,
+      };
+    }
+  });
+  setCurrentMood(
+    latestPetPresentation && latestPetPresentation.sticker,
+    latestPetPresentation && latestPetPresentation.variant,
+    false
+  );
   trackOldest(messages);
   hasMoreHistory = Boolean(payload && payload.hasMore);
 });
@@ -186,7 +265,10 @@ socket.on('user-message-echo', (payload) => {
 });
 
 socket.on('pet-message', (payload) => {
-  const div = renderMessage(payload.text, 'pet', payload.sticker);
+  const div = renderMessage(payload.text, 'pet', payload.sticker, { animated: true });
+  const stickerImage = div.querySelector('.sticker-img');
+  const variant = Number(stickerImage && stickerImage.dataset.variant) || 1;
+  setCurrentMood(payload.sticker, variant);
   if (voiceEnabled) playMessageAudio(payload.text, payload.sticker, div.querySelector('.msg-play-btn'));
 });
 
@@ -206,13 +288,6 @@ form.addEventListener('submit', (e) => {
   socket.emit('message', text);
   input.value = '';
 });
-
-if (logoutBtn) {
-  logoutBtn.addEventListener('click', async () => {
-    await fetch('/api/logout', { method: 'POST' });
-    window.location.href = '/login';
-  });
-}
 
 // --- Voice input (speech-to-text) ---
 // Browser-native Web Speech API - free, no server round-trip, no API key.
@@ -289,15 +364,6 @@ const savedVoicePreference = localStorage.getItem(VOICE_PREF_KEY);
 let voiceEnabled = savedVoicePreference === 'true';
 let currentAudio = null;
 let currentPlayBtn = null;
-
-function updateVoiceBtn() {
-  if (!voiceBtn) return;
-  voiceBtn.textContent = voiceEnabled ? '🔊' : '🔇';
-  voiceBtn.classList.toggle('active', voiceEnabled);
-  voiceBtn.dataset.label = voiceEnabled ? 'Sound on' : 'Sound off';
-  voiceBtn.title = voiceEnabled ? 'Voice replies on - tap to mute' : 'Voice replies off - tap to enable';
-  voiceBtn.setAttribute('aria-label', voiceBtn.title);
-}
 
 function setBtnPlaying(btn, playing) {
   if (!btn) return;
@@ -379,19 +445,6 @@ fetch('/api/tts/status')
   .then((info) => {
     if (info && info.enabled) {
       messagesEl.classList.add('tts-enabled'); // reveals every msg-play-btn
-      if (voiceBtn) {
-        voiceBtn.classList.remove('hidden');
-        updateVoiceBtn();
-      }
     }
   })
   .catch(() => {});
-
-if (voiceBtn) {
-  voiceBtn.addEventListener('click', () => {
-    voiceEnabled = !voiceEnabled;
-    localStorage.setItem(VOICE_PREF_KEY, String(voiceEnabled));
-    updateVoiceBtn();
-    if (!voiceEnabled) stopSpeaking();
-  });
-}

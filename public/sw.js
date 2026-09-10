@@ -14,14 +14,15 @@
 //
 // CACHE_VERSION: bump this string whenever the precache list below changes,
 // so the old cache is dropped on activate instead of lingering forever.
-const CACHE_VERSION = 'v6-theme-control';
+const CACHE_VERSION = 'v13-transparent-stickers';
 const STATIC_CACHE = `tukurumukuru-static-${CACHE_VERSION}`;
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
-  '/style.css?v=6',
-  '/theme.js',
-  '/client.js',
+  '/style.css?v=11',
+  '/theme.js?v=11',
+  '/client.js?v=12',
+  '/settings-client.js?v=11',
   '/login-client.js',
   '/manifest.webmanifest',
   '/offline.html',
@@ -43,6 +44,45 @@ const PRECACHE_URLS = [
   '/stickers/annoyed.webp',
   '/stickers/laughing.webp',
   '/stickers/sad.webp',
+  '/stickers/neutral-2.webp',
+  '/stickers/greeting-2.webp',
+  '/stickers/curious-2.webp',
+  '/stickers/playful-2.webp',
+  '/stickers/excited-2.webp',
+  '/stickers/affectionate-2.webp',
+  '/stickers/sleepy-2.webp',
+  '/stickers/napping-2.webp',
+  '/stickers/hungry-2.webp',
+  '/stickers/startled-2.webp',
+  '/stickers/annoyed-2.webp',
+  '/stickers/laughing-2.webp',
+  '/stickers/sad-2.webp',
+  '/stickers/neutral.gif',
+  '/stickers/neutral-2.gif',
+  '/stickers/greeting.gif',
+  '/stickers/greeting-2.gif',
+  '/stickers/curious.gif',
+  '/stickers/curious-2.gif',
+  '/stickers/playful.gif',
+  '/stickers/playful-2.gif',
+  '/stickers/excited.gif',
+  '/stickers/excited-2.gif',
+  '/stickers/affectionate.gif',
+  '/stickers/affectionate-2.gif',
+  '/stickers/sleepy.gif',
+  '/stickers/sleepy-2.gif',
+  '/stickers/napping.gif',
+  '/stickers/napping-2.gif',
+  '/stickers/hungry.gif',
+  '/stickers/hungry-2.gif',
+  '/stickers/startled.gif',
+  '/stickers/startled-2.gif',
+  '/stickers/annoyed.gif',
+  '/stickers/annoyed-2.gif',
+  '/stickers/laughing.gif',
+  '/stickers/laughing-2.gif',
+  '/stickers/sad.gif',
+  '/stickers/sad-2.gif',
 ];
 
 self.addEventListener('install', (event) => {

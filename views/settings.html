@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Settings · TukuruMukuru</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#ff6b4a" />
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<script src="/theme.js?v=11"></script>
+<link rel="stylesheet" href="/style.css?v=11" />
+</head>
+<body class="settings-body">
+  <main class="settings-shell">
+    <header class="settings-topbar">
+      <a class="settings-back" href="/" aria-label="Back to chat"><span aria-hidden="true">←</span><span>Chat</span></a>
+      <h1>Settings</h1>
+      <span class="settings-topbar-spacer" aria-hidden="true"></span>
+    </header>
+
+    <div class="settings-content">
+      <section class="settings-intro" aria-labelledby="settings-title">
+        <div class="settings-mascot"><img src="/stickers/curious.webp" alt="TukuruMukuru looking curious" /></div>
+        <div>
+          <p class="eyebrow">Make it yours</p>
+          <h2 id="settings-title">Your cozy corner</h2>
+          <p>Choose how TukuruMukuru looks, sounds, and checks in.</p>
+        </div>
+      </section>
+
+      <section class="settings-card" aria-labelledby="appearance-heading">
+        <div class="settings-card-heading">
+          <div>
+            <span class="settings-kicker">Appearance</span>
+            <h2 id="appearance-heading">Theme</h2>
+          </div>
+          <span aria-hidden="true" class="settings-card-icon">✦</span>
+        </div>
+        <div class="theme-grid" role="group" aria-label="Choose color theme">
+          <button type="button" class="theme-choice" data-theme-choice="light" aria-pressed="false">
+            <span class="theme-preview preview-light" aria-hidden="true"><i></i><i></i><i></i></span>
+            <strong>Light</strong><small>Sunny and bright</small>
+          </button>
+          <button type="button" class="theme-choice" data-theme-choice="dark" aria-pressed="false">
+            <span class="theme-preview preview-dark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <strong>Dark</strong><small>Colorful at night</small>
+          </button>
+          <button type="button" class="theme-choice" data-theme-choice="retro" aria-pressed="false">
+            <span class="theme-preview preview-retro" aria-hidden="true"><i></i><i></i><i></i></span>
+            <strong>Retro</strong><small>The original brown</small>
+          </button>
+        </div>
+      </section>
+
+      <section class="settings-card compact-card" aria-labelledby="sound-heading">
+        <div class="setting-row">
+          <div>
+            <span class="settings-kicker">Voice</span>
+            <h2 id="sound-heading">Spoken replies</h2>
+            <p id="voice-setting-copy">Let TukuruMukuru read new replies aloud.</p>
+          </div>
+          <button id="voice-setting-btn" class="settings-toggle" type="button" aria-pressed="false"><span aria-hidden="true">🔇</span> Off</button>
+        </div>
+      </section>
+
+      <section class="settings-card compact-card" aria-labelledby="notification-heading">
+        <div class="setting-row">
+          <div>
+            <span class="settings-kicker">Check-ins</span>
+            <h2 id="notification-heading">Notifications</h2>
+            <p>Get a notification when TukuruMukuru sends a new message.</p>
+          </div>
+          <button id="notify-btn" class="settings-toggle hidden" type="button" data-label="Off" aria-pressed="false">🔕 Off</button>
+        </div>
+      </section>
+
+      <section class="settings-card account-card" aria-labelledby="account-heading">
+        <div>
+          <span class="settings-kicker">Account</span>
+          <h2 id="account-heading">Take a break</h2>
+          <p>You can sign back in whenever you want to chat again.</p>
+        </div>
+        <button id="settings-logout-btn" type="button"><span aria-hidden="true">↗</span> Log out</button>
+      </section>
+    </div>
+  </main>
+
+  <script src="/push-client.js?v=11"></script>
+  <script src="/settings-client.js?v=11"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('SW registration failed', err));
+      });
+    }
+  </script>
+</body>
+</html>

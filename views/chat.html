@@ -12,8 +12,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="TukuruMukuru" />
-<script src="/theme.js"></script>
-<link rel="stylesheet" href="/style.css?v=6" />
+<script src="/theme.js?v=11"></script>
+<link rel="stylesheet" href="/style.css?v=11" />
 </head>
 <body>
   <div id="chat-screen">
@@ -25,22 +25,24 @@
       </div>
       <div class="mascot-stage">
         <span class="spark spark-one">✦</span><span class="spark spark-two">★</span><span class="spark spark-three">✦</span>
-        <img src="/stickers/greeting.webp" alt="" />
+        <img id="buddy-mood-image" src="/stickers/neutral.webp" alt="TukuruMukuru is feeling neutral" />
       </div>
       <div class="mood-strip"><span>curious</span><span>kind</span><span>silly</span></div>
     </aside>
     <main class="chat-panel">
-      <header>
-        <div class="avatar"><img src="/stickers/neutral.webp" alt="" /></div>
+      <header id="chat-header" data-mood="neutral">
+        <div class="avatar" aria-hidden="true"><img id="header-mood-image" src="/stickers/neutral.webp" alt="" /></div>
         <div class="header-text">
           <h1 id="pet-name">TukuruMukuru</h1>
-          <span id="pet-status">connecting...</span>
         </div>
         <div class="header-actions">
-          <button id="theme-btn" type="button" title="Switch to dark mode" aria-label="Switch to dark mode" aria-pressed="false" data-label="Dark mode" class="header-control control-btn theme-toggle">☾</button>
-          <button id="voice-btn" title="Enable spoken replies" aria-label="Enable spoken replies" data-label="Sound off" class="header-control control-btn hidden">🔇</button>
-          <button id="notify-btn" title="Get notified when TukuruMukuru checks in" aria-label="Enable notifications" data-label="Alerts off" class="header-control control-btn hidden">🔕</button>
-          <button id="logout-btn" title="Log out"><span class="logout-icon" aria-hidden="true">↗</span><span class="logout-label">Log out</span></button>
+          <button id="mood-expand-btn" type="button" title="Make TukuruMukuru bigger" aria-label="Make TukuruMukuru bigger" aria-controls="chat-header" aria-expanded="false" data-label="Big mood" class="header-control control-btn mood-expand">↗</button>
+          <a id="settings-btn" href="/settings" title="Open settings" aria-label="Open settings" data-label="Settings" class="header-control control-btn">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.08V21H9.55v-.08A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.1 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.08-.4H2.3V9.55h.12A1.7 1.7 0 0 0 4.1 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.56 3.7l.06.06A1.7 1.7 0 0 0 8.5 4.1a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.08V2.3h4.05v.12A1.7 1.7 0 0 0 15 4.1a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 8.5a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.08.4h.12v4.05h-.12A1.7 1.7 0 0 0 19.4 15Z"></path>
+            </svg>
+          </a>
         </div>
       </header>
       <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
@@ -54,8 +56,7 @@
     </main>
   </div>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/push-client.js"></script>
-  <script src="/client.js"></script>
+  <script src="/client.js?v=12"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
