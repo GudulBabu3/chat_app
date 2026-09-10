@@ -195,7 +195,7 @@ header {
 .msg-row { width: 100%; display: flex; align-items: center; gap: 8px; }
 .msg.pet .msg-row { justify-content: space-between; }
 .msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg-media { display: block; width: 100%; max-height: 320px; margin-top: 4px; border-radius: 14px; border: 2px solid var(--line); object-fit: cover; }
+.msg-media { display: block; width: 100%; height: auto; max-height: 520px; margin-top: 4px; border-radius: 14px; border: 2px solid var(--line); object-fit: contain; }
 .msg-play-btn { min-width: 34px; height: 36px; flex-shrink: 0; padding: 0 9px; display: none; align-items: center; justify-content: center; gap: 5px; border: 2px solid var(--line); border-radius: 999px; color: inherit; background: var(--cream); font-weight: 900; cursor: pointer; }
 .msg-play-btn::after { content: attr(data-label); font-family: system-ui, sans-serif; font-size: 0.7rem; }
 .msg-play-btn:hover, .msg-play-btn.playing { color: var(--accent-ink); background: var(--aqua); }
