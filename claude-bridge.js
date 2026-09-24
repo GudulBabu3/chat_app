@@ -370,6 +370,74 @@ function generateRestingBeat({ worldProfile, cwd }) {
   });
 }
 
+// Used when an admin sets "today's special" (see pet-admin.js/server.js's
+// and admin.js's "special set" handlers) - takes the admin's free-text note
+// and turns it into one small, specific, in-character story moment built
+// around it, immediately broadcast to every user (see special-broadcast.js).
+// One-shot, never resumed, same shape as generateRestingBeat above.
+function buildSpecialBeatPrompt({ worldProfile, specialNote }) {
+  const friendLines = (worldProfile.friends || [])
+    .map((f) => `- ${f.name} (${f.species}${f.role ? `, ${f.role}` : ''}): ${f.personality.join(', ')}${f.partner ? ` - paired up with ${f.partner}` : ''}`)
+    .join('\n');
+
+  return `You are writing one small, specific, in-character story moment for a recurring chat-companion app's daily proactive update, built around a special occasion an admin has flagged for today.
+
+TODAY'S SPECIAL OCCASION (given by the admin - take this as the starting point, don't ignore or water it down): ${specialNote}
+
+FRIEND GROUP (TukuruMukuru's friends):
+${friendLines}
+
+Turn this into ONE small, specific, concrete story moment happening today - centered on TukuruMukuru together with one or two of Octu, Coco, Mochi, or Po specifically (those are the friends a companion illustration can actually show clearly - Kevin, Bob, and Stuart can be mentioned in passing if it fits naturally, but must not be the only characters involved or the main focus, since they can never appear in the illustration). Match the tone to the occasion - comedic and warm where that fits, genuine and sincere where the occasion calls for it instead (a birthday or anniversary shouldn't be played for laughs). Dino-Day and any villain plot must NOT appear or be referenced at all - he's completely absent from this. Written as loose direction for another AI to improvise dialogue from, not a scripted scene or dialogue itself. 1-3 sentences.`;
+}
+
+function generateSpecialBeat({ worldProfile, specialNote, cwd }) {
+  const args = [
+    '-p', buildSpecialBeatPrompt({ worldProfile, specialNote }),
+    '--session-id', crypto.randomUUID(), // fresh, one-shot - never resumed
+    '--output-format', 'json',
+    '--json-schema',
+    JSON.stringify({
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+      additionalProperties: false,
+    }),
+    '--tools', '',
+    '--strict-mcp-config',
+    '--model', MODEL,
+    '--fallback-model', MODEL,
+    '--max-budget-usd', MAX_BUDGET_USD,
+  ];
+
+  return new Promise((resolve) => {
+    execFile(
+      CLAUDE_BIN,
+      args,
+      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
+      (err, stdout) => {
+        if (err) {
+          console.error('[special beat] claude CLI failed:', err.message);
+          resolve(null);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout);
+          const structured = parsed.structured_output;
+          if (structured && isNonEmptyString(structured.text)) {
+            resolve(structured.text.trim());
+          } else {
+            console.error('[special beat] missing/invalid structured_output:', String(stdout).slice(0, 500));
+            resolve(null);
+          }
+        } catch (parseErr) {
+          console.error('[special beat] could not parse claude CLI output:', parseErr.message);
+          resolve(null);
+        }
+      }
+    );
+  });
+}
+
 // Cheaper/faster model used only for background fact extraction below -
 // kept separate from MODEL (the persona's own reply model) so extraction
 // never competes with reply latency or the persona call's own budget.
@@ -520,4 +588,4 @@ function mergeFacts(existingFacts, newFacts, maxFacts = 60) {
   return merged.length > maxFacts ? merged.slice(merged.length - maxFacts) : merged;
 }
 
-module.exports = { askPet, generateStoryPremise, generateRestingBeat, extractFacts, mergeFacts, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };
+module.exports = { askPet, generateStoryPremise, generateRestingBeat, generateSpecialBeat, extractFacts, mergeFacts, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };

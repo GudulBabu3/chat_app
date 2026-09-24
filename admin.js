@@ -44,6 +44,7 @@ const storyArc = require('./story-arc');
 const { PUSH_ENABLED } = require('./push-sender');
 const { notifyLiveServer } = require('./notify-live');
 const { generateStoryPremise } = require('./claude-bridge');
+const { runSpecialBroadcast } = require('./special-broadcast');
 
 // Same idea as server.js/nudge-scheduler.js/story-scheduler.js: give the
 // claude CLI its own empty scratch directory.
@@ -174,9 +175,28 @@ async function main() {
 
         if (sub === 'set') {
           if (!text) usageAndExit();
-          await petAdmin.setTodaySpecial(petAdminCollection, text);
+          const { isFirstSetToday } = await petAdmin.setTodaySpecial(petAdminCollection, text);
           console.log(`Today's special set: "${text}"`);
           console.log("TukuruMukuru will naturally bring this up with anyone who chats today - it clears itself automatically tomorrow.");
+
+          if (isFirstSetToday) {
+            console.log('This is the first time it\'s been set today - generating a story + image and broadcasting to every user now (this can take a few minutes)...');
+            const profile = loadProfile();
+            const worldProfile = loadWorldProfile();
+            const allowedStickers = Object.keys(profile.stickers.guidance);
+            await runSpecialBroadcast({
+              db,
+              worldProfile,
+              cwd: CLAUDE_CWD,
+              specialNote: text,
+              profile,
+              allowedStickers,
+              notify: (userId, payload) => notifyLiveServer({ userId, ...payload }),
+            });
+            console.log('Broadcast complete.');
+          } else {
+            console.log("It's already been broadcast once today - this edit updated the note but didn't re-send to everyone.");
+          }
         } else if (sub === 'show') {
           const state = await petAdmin.getAdminState(petAdminCollection);
           console.log(state.todaySpecial || '(nothing set for today)');

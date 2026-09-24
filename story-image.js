@@ -76,6 +76,20 @@ async function requestImage(prompt) {
   }
 }
 
+// Lower-level primitive, factored out so other daily-image features (e.g.
+// special-broadcast.js's admin-triggered special-day image) can reuse the
+// actual bridge-call + disk-save mechanics without being tied to this
+// module's own dailyStoryImage collection/caching. `filenamePrefix` just
+// keeps files from different features visually distinguishable on disk
+// (e.g. "story-2026-09-24", "special-2026-09-24").
+async function generateAndSaveImagePng(prompt, filenamePrefix) {
+  const buffer = await requestImage(prompt); // throws on failure - caller decides how to fail soft
+  if (!fs.existsSync(MEDIA_DIR)) await fsp.mkdir(MEDIA_DIR, { recursive: true });
+  const filename = `${filenamePrefix}-${crypto.randomBytes(4).toString('hex')}.png`;
+  await fsp.writeFile(path.join(MEDIA_DIR, filename), buffer);
+  return { url: `/media/${filename}`, bytes: buffer.length };
+}
+
 // Idempotent per day: a second call on the same day (script re-run, cron
 // firing twice) just returns the already-generated doc instead of asking
 // Codex again - same pattern as media-scheduler.js's getOrFetchTodaysMedia
@@ -96,38 +110,48 @@ async function getOrGenerateTodaysStoryImage(db, arcState, now, opts = {}) {
   if (!text) return null;
   const prompt = buildImagePrompt({ text, title });
 
-  let buffer;
+  let result;
   try {
-    buffer = await requestImage(prompt);
+    result = await generateAndSaveImagePng(prompt, `story-${dateKey}`);
   } catch (err) {
     console.warn(`[story-image] generation failed, today's story goes out text-only: ${err.message}`);
     return null;
   }
 
-  if (!fs.existsSync(MEDIA_DIR)) await fsp.mkdir(MEDIA_DIR, { recursive: true });
-  const filename = `story-${dateKey}-${crypto.randomBytes(4).toString('hex')}.png`;
-  await fsp.writeFile(path.join(MEDIA_DIR, filename), buffer);
-
-  const doc = { dateKey, url: `/media/${filename}`, prompt, createdAt: now };
+  const doc = { dateKey, url: result.url, prompt, createdAt: now };
   await dailyStoryImageCollection.insertOne(doc);
-  console.log(`[story-image] generated today's story image (${filename}, ${buffer.length} bytes).`);
+  console.log(`[story-image] generated today's story image (${result.url}, ${result.bytes} bytes).`);
   return doc;
 }
 
 // Same idea as media-scheduler.js's cleanupOldMedia - public/media/ shouldn't
 // grow unbounded on the VM's modest disk.
 async function cleanupOldStoryImages(db, now) {
-  const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  const dailyStoryImageCollection = db.collection('dailyStoryImage');
-  const old = await dailyStoryImageCollection.find({ createdAt: { $lt: cutoff } }).toArray();
+  await cleanupOldImageDocs(db, now, 'dailyStoryImage', RETENTION_DAYS, '[story-image]');
+}
+
+// Generic version of the cleanup above, reused by other daily-image
+// features (e.g. special-broadcast.js's `dailySpecial` collection) so the
+// "delete the file, then delete the doc" logic isn't duplicated per feature.
+async function cleanupOldImageDocs(db, now, collectionName, retentionDays, logPrefix) {
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
+  const collection = db.collection(collectionName);
+  const old = await collection.find({ createdAt: { $lt: cutoff } }).toArray();
   for (const doc of old) {
+    if (!doc.url) continue; // e.g. a special-day doc whose image generation failed
     const filePath = path.join(__dirname, 'public', doc.url.replace(/^\//, ''));
     await fsp.unlink(filePath).catch(() => {}); // already gone is fine
   }
   if (old.length) {
-    await dailyStoryImageCollection.deleteMany({ _id: { $in: old.map((d) => d._id) } });
-    console.log(`[story-image] cleaned up ${old.length} story image(s) older than ${RETENTION_DAYS} days.`);
+    await collection.deleteMany({ _id: { $in: old.map((d) => d._id) } });
+    console.log(`${logPrefix} cleaned up ${old.length} image(s) older than ${retentionDays} days.`);
   }
 }
 
-module.exports = { getOrGenerateTodaysStoryImage, cleanupOldStoryImages, buildImagePrompt };
+module.exports = {
+  getOrGenerateTodaysStoryImage,
+  cleanupOldStoryImages,
+  cleanupOldImageDocs,
+  buildImagePrompt,
+  generateAndSaveImagePng,
+};

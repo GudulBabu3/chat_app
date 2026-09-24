@@ -39,12 +39,26 @@ async function removeFromList(petAdminCollection, field, text) {
   await petAdminCollection.updateOne({ _id: SINGLETON_ID }, { $pull: { [field]: text } }, { upsert: true });
 }
 
+// Returns { isFirstSetToday } so callers (server.js's admin panel route,
+// admin.js's CLI) know whether to kick off the special-day broadcast (see
+// special-broadcast.js) - only the first "set" for a given calendar day
+// should trigger it; a later same-day edit (e.g. fixing a typo) just
+// updates the stored note without re-messaging every user. Clearing the
+// special (clearTodaySpecial below) resets this, so setting again
+// afterward - even the same day - counts as a fresh "first set".
 async function setTodaySpecial(petAdminCollection, note) {
+  const doc = await petAdminCollection.findOne({ _id: SINGLETON_ID });
+  const existing = doc?.todaySpecial;
+  const today = todayKey();
+  const alreadyTriggeredToday = existing && existing.date === today && existing.broadcastTriggered;
+
   await petAdminCollection.updateOne(
     { _id: SINGLETON_ID },
-    { $set: { todaySpecial: { date: todayKey(), note } } },
+    { $set: { todaySpecial: { date: today, note, broadcastTriggered: true } } },
     { upsert: true }
   );
+
+  return { isFirstSetToday: !alreadyTriggeredToday };
 }
 
 async function clearTodaySpecial(petAdminCollection) {
