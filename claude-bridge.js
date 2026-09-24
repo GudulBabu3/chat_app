@@ -297,6 +297,79 @@ function generateStoryPremise({ worldProfile, pastTitles, cwd, maxDays = MAX_PHA
 }
 
 
+// Used during the story arc's resting phase (the ~3-4 week gap between
+// Dino-Day arcs) so the daily proactive message + shared image don't go
+// completely silent - generates one small, specific, wholesome slice-of-life
+// moment per day instead, with Dino-Day entirely absent. One-shot, never
+// resumed, same shape as generateStoryPremise above but much simpler (no
+// day-by-day array - resting isn't phase-day-tracked, see story-arc.js).
+function buildRestingBeatPrompt({ worldProfile }) {
+  const friendLines = (worldProfile.friends || [])
+    .map((f) => `- ${f.name} (${f.species}${f.role ? `, ${f.role}` : ''}): ${f.personality.join(', ')}${f.partner ? ` - paired up with ${f.partner}` : ''}`)
+    .join('\n');
+
+  return `You are writing one small, specific, wholesome slice-of-life moment for a recurring chat-companion app's daily proactive update, during a stretch where the villain subplot is on a break and nothing dramatic is going on. This moment also gets a companion illustration, so who's actually in it matters.
+
+FRIEND GROUP (TukuruMukuru's friends):
+${friendLines}
+
+Center the moment on TukuruMukuru together with one or two of Octu, Coco, Mochi, or Po specifically - those are the friends the illustration can actually show clearly. Kevin, Bob, and Stuart can be mentioned in passing or in the background of the story if it fits naturally, but must not be the only characters in the moment or the main focus, since none of them can appear in the illustration itself - a moment built entirely around them leaves nothing for the artist to draw.
+
+Invent ONE small, specific, concrete thing that happened during an ordinary day - not a summary of a whole day, not vague ("everyone had fun"), one real specific moment (for example: "Octu talked everyone into a spontaneous picnic that turned into a two-hour nap pile", or "Coco and Mochi tried to teach Po how to properly hug and it turned into a wrestling match"). Comedic and warm, low-stakes, everyday. Dino-Day and any villain plot must NOT appear or be referenced at all - he's completely absent from this. Written as loose direction for another AI to improvise dialogue from, not a scripted scene or dialogue itself. 1-3 sentences.`;
+}
+
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function generateRestingBeat({ worldProfile, cwd }) {
+  const args = [
+    '-p', buildRestingBeatPrompt({ worldProfile }),
+    '--session-id', crypto.randomUUID(), // fresh, one-shot - never resumed
+    '--output-format', 'json',
+    '--json-schema',
+    JSON.stringify({
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+      additionalProperties: false,
+    }),
+    '--tools', '',
+    '--strict-mcp-config',
+    '--model', MODEL,
+    '--fallback-model', MODEL,
+    '--max-budget-usd', MAX_BUDGET_USD,
+  ];
+
+  return new Promise((resolve) => {
+    execFile(
+      CLAUDE_BIN,
+      args,
+      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
+      (err, stdout) => {
+        if (err) {
+          console.error('[resting beat] claude CLI failed:', err.message);
+          resolve(null);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout);
+          const structured = parsed.structured_output;
+          if (structured && isNonEmptyString(structured.text)) {
+            resolve(structured.text.trim());
+          } else {
+            console.error('[resting beat] missing/invalid structured_output:', String(stdout).slice(0, 500));
+            resolve(null);
+          }
+        } catch (parseErr) {
+          console.error('[resting beat] could not parse claude CLI output:', parseErr.message);
+          resolve(null);
+        }
+      }
+    );
+  });
+}
+
 // Cheaper/faster model used only for background fact extraction below -
 // kept separate from MODEL (the persona's own reply model) so extraction
 // never competes with reply latency or the persona call's own budget.
@@ -447,4 +520,4 @@ function mergeFacts(existingFacts, newFacts, maxFacts = 60) {
   return merged.length > maxFacts ? merged.slice(merged.length - maxFacts) : merged;
 }
 
-module.exports = { askPet, generateStoryPremise, extractFacts, mergeFacts, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };
+module.exports = { askPet, generateStoryPremise, generateRestingBeat, extractFacts, mergeFacts, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };

@@ -20,8 +20,9 @@ const fs = require('fs');
 const { MongoClient } = require('mongodb');
 const storyArc = require('./story-arc');
 const { loadWorldProfile } = require('./persona');
-const { generateStoryPremise } = require('./claude-bridge');
+const { generateStoryPremise, generateRestingBeat } = require('./claude-bridge');
 const storyImage = require('./story-image');
+const restingBeat = require('./resting-beat');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
@@ -61,7 +62,16 @@ async function main() {
     // network call to NPN-old failing or timing out.
     try {
       await storyImage.cleanupOldStoryImages(db, new Date());
-      await storyImage.getOrGenerateTodaysStoryImage(db, after, new Date());
+      await restingBeat.cleanupOldRestingBeats(db, new Date());
+
+      let restingBeatText = null;
+      if (after.phase === 'resting') {
+        restingBeatText = await restingBeat.getOrGenerateTodaysRestingBeat(db, new Date(), () =>
+          generateRestingBeat({ worldProfile, cwd: CLAUDE_CWD })
+        );
+      }
+
+      await storyImage.getOrGenerateTodaysStoryImage(db, after, new Date(), { restingBeatText });
     } catch (err) {
       console.warn('[story] story-image step failed (non-fatal):', err.message);
     }
