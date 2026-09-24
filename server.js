@@ -16,6 +16,7 @@ const { hashPassword, verifyPassword, isRateLimited, recordAttempt, clearAttempt
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushToUser } = require('./push-sender');
+const { runSpecialBroadcast } = require('./special-broadcast');
 const { TTS_ENABLED, synthesizeSpeech } = require('./tts');
 
 const PORT = process.env.PORT || 3000;
@@ -581,7 +582,34 @@ async function start() {
     if (action === 'set') {
       const trimmed = String(text || '').trim();
       if (!trimmed) return res.status(400).json({ ok: false, error: 'text is required to set a special.' });
-      await petAdmin.setTodaySpecial(petAdminCollection, trimmed);
+      const { isFirstSetToday } = await petAdmin.setTodaySpecial(petAdminCollection, trimmed);
+
+      if (isFirstSetToday) {
+        // Fire-and-forget: generating the image alone can take up to ~2
+        // minutes, plus a separate Claude reply per user after that - for
+        // many users this can take several minutes total. The admin panel
+        // just gets an immediate "queued" response; the actual work
+        // happens in the background, same philosophy as the nightly cron
+        // scripts (story-scheduler.js/story-beat-scheduler.js).
+        runSpecialBroadcast({
+          db,
+          worldProfile,
+          cwd: CLAUDE_CWD,
+          specialNote: trimmed,
+          profile,
+          allowedStickers: ALLOWED_STICKERS,
+          notify: async (userId, payload) => {
+            notifyUserSockets(userId, payload);
+            if (!isUserVisible(userId)) {
+              await sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: payload.text, url: '/' }).catch(
+                (err) => console.warn(`[special] push send failed for ${userId}:`, err.message)
+              );
+            }
+          },
+        }).catch((err) => console.error('[special] broadcast failed:', err));
+
+        return res.json({ ok: true, broadcasting: true });
+      }
     } else if (action === 'clear') {
       await petAdmin.clearTodaySpecial(petAdminCollection);
     } else {

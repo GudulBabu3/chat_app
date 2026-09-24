@@ -23,6 +23,7 @@ const { loadWorldProfile } = require('./persona');
 const { generateStoryPremise, generateRestingBeat } = require('./claude-bridge');
 const storyImage = require('./story-image');
 const restingBeat = require('./resting-beat');
+const { cleanupOldSpecialBroadcasts } = require('./special-broadcast');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
@@ -63,6 +64,7 @@ async function main() {
     try {
       await storyImage.cleanupOldStoryImages(db, new Date());
       await restingBeat.cleanupOldRestingBeats(db, new Date());
+      await cleanupOldSpecialBroadcasts(db, new Date());
 
       let restingBeatText = null;
       if (after.phase === 'resting') {
