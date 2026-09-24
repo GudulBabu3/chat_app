@@ -130,4 +130,4 @@ async function cleanupOldStoryImages(db, now) {
   }
 }
 
-module.exports = { getOrGenerateTodaysStoryImage, cleanupOldStoryImages };
+module.exports = { getOrGenerateTodaysStoryImage, cleanupOldStoryImages, buildImagePrompt };
