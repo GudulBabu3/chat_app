@@ -308,10 +308,12 @@ function buildRestingBeatPrompt({ worldProfile }) {
     .map((f) => `- ${f.name} (${f.species}${f.role ? `, ${f.role}` : ''}): ${f.personality.join(', ')}${f.partner ? ` - paired up with ${f.partner}` : ''}`)
     .join('\n');
 
-  return `You are writing one small, specific, wholesome slice-of-life moment for a recurring chat-companion app's daily proactive update, during a stretch where the villain subplot is on a break and nothing dramatic is going on.
+  return `You are writing one small, specific, wholesome slice-of-life moment for a recurring chat-companion app's daily proactive update, during a stretch where the villain subplot is on a break and nothing dramatic is going on. This moment also gets a companion illustration, so who's actually in it matters.
 
-FRIEND GROUP (TukuruMukuru's friends - draw on one or two of these for the specific moment, don't try to include everyone):
+FRIEND GROUP (TukuruMukuru's friends):
 ${friendLines}
+
+Center the moment on TukuruMukuru together with one or two of Octu, Coco, Mochi, or Po specifically - those are the friends the illustration can actually show clearly. Kevin, Bob, and Stuart can be mentioned in passing or in the background of the story if it fits naturally, but must not be the only characters in the moment or the main focus, since none of them can appear in the illustration itself - a moment built entirely around them leaves nothing for the artist to draw.
 
 Invent ONE small, specific, concrete thing that happened during an ordinary day - not a summary of a whole day, not vague ("everyone had fun"), one real specific moment (for example: "Octu talked everyone into a spontaneous picnic that turned into a two-hour nap pile", or "Coco and Mochi tried to teach Po how to properly hug and it turned into a wrestling match"). Comedic and warm, low-stakes, everyday. Dino-Day and any villain plot must NOT appear or be referenced at all - he's completely absent from this. Written as loose direction for another AI to improvise dialogue from, not a scripted scene or dialogue itself. 1-3 sentences.`;
 }
