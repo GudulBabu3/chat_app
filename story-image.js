@@ -35,13 +35,23 @@ function buildImagePrompt({ text, title }) {
   return (
     `Children's-book illustration, warm and comedic, square composition, no text or lettering anywhere in the image. ` +
     `Scene: ${text} ` +
-    `TukuruMukuru is the protagonist, a red panda. Dino-Day is the villain, a tall dinosaur wearing a pink shirt, ` +
-    `with a scary growl played for laughs rather than menace. ` +
-    `Character rules, important: if the scene mentions Kevin, Bob, or Stuart, do not depict them at all, in any form - ` +
-    `leave them out of the illustration entirely, even in the background, and focus the composition on TukuruMukuru ` +
-    `and Dino-Day (and any other original characters) instead. If the scene mentions Po, depict him only as a plain, ` +
-    `original cartoon panda - round and friendly, with no specific outfit, markings, or accessories - and never use ` +
-    `the name "Po" or reference any existing panda character's identity.`
+    `Character designs - depict whichever of these the scene above actually involves, and make sure every character ` +
+    `the scene names is clearly shown, not just the two leads: ` +
+    `TukuruMukuru is the protagonist, a red panda. ` +
+    `Dino-Day is the villain, a tall dinosaur wearing a pink shirt, with a scary growl played for laughs rather than menace. ` +
+    `Octu is a warm, nurturing female octopus, the group's easygoing elder-sister figure. ` +
+    `Coco and Mochi are two monkeys, a couple, almost always shown together being affectionate (hugging, side by side). ` +
+    `Character rules, important: Kevin, Bob, and Stuart must NEVER be depicted, in any form, even if the scene above ` +
+    `mentions them by name - leave them out of the illustration entirely, including the background. This exclusion is ` +
+    `only for those three - every other character the scene mentions (TukuruMukuru, Dino-Day, Octu, Coco, Mochi, or a ` +
+    `panda per the Po rule below) should be fully and clearly depicted as normal, not omitted or downplayed. If the ` +
+    `scene mentions Po, depict him only as a plain, original cartoon panda - round and friendly, with no specific ` +
+    `outfit, markings, or accessories - and never use the name "Po" or reference any existing panda character's identity. ` +
+    `Setting and atmosphere: this is a lively forest, so feel free to fill out the background with ordinary woodland ` +
+    `wildlife going about their day - rabbits, tortoises, squirrels, deer, owls, and similar - the way a rich ` +
+    `storybook illustration would. They're just atmosphere, not named characters, so keep them incidental and in the ` +
+    `background/periphery - the named characters above are who the scene is actually about and should stay the ` +
+    `clear visual focus.`
   );
 }
 
