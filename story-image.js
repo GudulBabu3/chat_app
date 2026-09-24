@@ -80,8 +80,11 @@ async function requestImage(prompt) {
 // firing twice) just returns the already-generated doc instead of asking
 // Codex again - same pattern as media-scheduler.js's getOrFetchTodaysMedia
 // and story-beat-scheduler.js's lastStoryBeatDate.
-async function getOrGenerateTodaysStoryImage(db, arcState, now) {
-  if (!arcState || arcState.phase === 'resting') return null;
+async function getOrGenerateTodaysStoryImage(db, arcState, now, opts = {}) {
+  if (!arcState) return null;
+
+  const { restingBeatText = null } = opts;
+  if (arcState.phase === 'resting' && !restingBeatText) return null;
 
   const dailyStoryImageCollection = db.collection('dailyStoryImage');
   const dateKey = todayKey(now);
@@ -89,7 +92,7 @@ async function getOrGenerateTodaysStoryImage(db, arcState, now) {
   const existing = await dailyStoryImageCollection.findOne({ dateKey });
   if (existing) return existing;
 
-  const { text, title } = resolveStoryGuidance(arcState, now);
+  const { text, title } = resolveStoryGuidance(arcState, now, restingBeatText);
   if (!text) return null;
   const prompt = buildImagePrompt({ text, title });
 

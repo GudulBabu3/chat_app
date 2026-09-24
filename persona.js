@@ -123,8 +123,8 @@ function pickBeat(beats, dayIndex) {
 // play, picks today's specific beat via dayIndexInPhase/pickBeat so the
 // guidance actually changes every day the phase runs, not just once per
 // multi-day phase.
-function resolveStoryGuidance(state, now) {
-  if (!state || state.phase === 'resting') return { text: RESTING_GUIDANCE, title: null };
+function resolveStoryGuidance(state, now, restingBeatText = null) {
+  if (!state || state.phase === 'resting') return { text: restingBeatText || RESTING_GUIDANCE, title: null };
   const dayIndex = dayIndexInPhase(state.phaseStartedAt, now);
   if (state.premise) {
     const beat = pickBeat(state.premise[state.phase], dayIndex);
@@ -140,7 +140,7 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
   // userFacts lives in this same options bag (despite the "story" name) to
   // avoid a third parameter - see claude-bridge.js's extractFacts and
   // server.js's extractAndSaveUserFacts for where this list comes from.
-  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date(), userFacts = [], selfFacts = [], storyBeats = [] } = storyContext;
+  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date(), userFacts = [], selfFacts = [], storyBeats = [], restingBeatText = null } = storyContext;
   const list = (arr) => arr.map((x) => `- ${x}`).join('\n');
   const stickerLines = Object.entries(p.stickers.guidance)
     .map(([key, desc]) => `- "${key}": ${desc}`)
@@ -168,7 +168,7 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
         .join('\n')}`
     : '';
 
-  const { text: storyText, title: storyTitle } = resolveStoryGuidance(arcState, now);
+  const { text: storyText, title: storyTitle } = resolveStoryGuidance(arcState, now, restingBeatText);
   const storyBlock = arcState
     ? `\n\nCURRENT STORY (today's specific beat - loose guidance, not a script - bring this in naturally if it fits the conversation, don't force it into every reply)${storyTitle ? ` - "${storyTitle}"` : ''}\n${storyText}`
     : '';

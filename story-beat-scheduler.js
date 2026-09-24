@@ -9,7 +9,9 @@
 // about today's Dino-Day development once a day, regardless of whether
 // they're actively chatting - so the story surfaces on its own instead of
 // only showing up when someone happens to ask about Dino-Day specifically.
-// Skipped entirely while the arc is "resting" (nothing to report).
+// During the arc's "resting" phase (no active Dino-Day plot), this instead
+// shares that day's generated wholesome slice-of-life beat (see
+// resting-beat.js) - skipped only if that beat hasn't been generated yet.
 //
 // Usage: node story-beat-scheduler.js   (run from the project root, e.g. via cron, once daily)
 
@@ -49,15 +51,21 @@ const ALLOWED_STICKERS = Object.keys(profile.stickers.guidance);
 const STORY_BEAT_INSTRUCTION =
   'Proactively bring up a specific, concrete new development in what\'s currently going on with Dino-Day, completely unprompted - like real news you\'re eager to share, not a vague teaser. Open naturally in your own voice (something like "you know what..." or "so get this..." or however feels natural), describe one real, specific thing that happened, and end in a way that invites them to respond or ask more if they want to. Keep it a few sentences, not a whole essay.';
 
+// Same idea, for resting-phase days (no Dino-Day plot active right now -
+// see resting-beat.js/persona.js's resolveStoryGuidance). Points at the
+// day's generated slice-of-life beat instead of the arc.
+const RESTING_BEAT_INSTRUCTION =
+  'Proactively share a small, specific, wholesome moment from an ordinary day with your friends, completely unprompted - like you\'re excited to tell them something cute or funny that happened, not a vague "things are good" update. Open naturally in your own voice, describe one real, specific thing, and end in a way that invites them to respond or ask more if they want to. Keep it a few sentences, not a whole essay. Dino-Day is not part of this at all right now.';
+
 // Mirrors the same helper in nudge-scheduler.js: if resuming the stored
 // session fails (corrupted/missing transcript), start a fresh one instead
 // of giving up.
-async function askPetWithFallback({ userId, claudeSessionId, systemPrompt, usersCollection }) {
+async function askPetWithFallback({ userId, claudeSessionId, systemPrompt, usersCollection, instruction }) {
   try {
     return await askPet({
       sessionId: claudeSessionId,
       isFirstTurn: false,
-      userMessage: STORY_BEAT_INSTRUCTION,
+      userMessage: instruction,
       systemPrompt,
       cwd: CLAUDE_CWD,
       allowedStickers: ALLOWED_STICKERS,
@@ -68,7 +76,7 @@ async function askPetWithFallback({ userId, claudeSessionId, systemPrompt, users
     const result = await askPet({
       sessionId: freshId,
       isFirstTurn: true,
-      userMessage: STORY_BEAT_INSTRUCTION,
+      userMessage: instruction,
       systemPrompt,
       cwd: CLAUDE_CWD,
       allowedStickers: ALLOWED_STICKERS,
@@ -90,13 +98,24 @@ async function main() {
 
   try {
     const arcState = await storyArc.getArcState(storyArcCollection);
-    if (arcState.phase === 'resting') {
-      console.log('[story-beat] arc is resting - nothing to report today.');
-      return;
-    }
-
     const adminState = await petAdmin.getAdminState(petAdminCollection);
     const today = todayKey(now);
+
+    // During resting there's no arc beat to report - instead we rely on
+    // story-scheduler.js having already generated today's shared slice-of-life
+    // beat (see resting-beat.js). If it hasn't run yet (or generation failed),
+    // fail soft exactly like the old "nothing to report" skip used to.
+    let restingBeatText = null;
+    if (arcState.phase === 'resting') {
+      const restingBeatDoc = await db.collection('dailyRestingBeat').findOne({ dateKey: today });
+      if (!restingBeatDoc) {
+        console.log('[story-beat] arc is resting and no beat generated yet today - nothing to report today.');
+        return;
+      }
+      restingBeatText = restingBeatDoc.text;
+    }
+
+    const instruction = arcState.phase === 'resting' ? RESTING_BEAT_INSTRUCTION : STORY_BEAT_INSTRUCTION;
 
     // Looked up once and reused for every user below - it's one shared image
     // for the whole app (see story-image.js), not generated per user. Just a
@@ -124,6 +143,7 @@ async function main() {
         arcState,
         joinedAt: user.createdAt,
         now,
+        restingBeatText,
       });
 
       try {
@@ -132,6 +152,7 @@ async function main() {
           claudeSessionId: sessionIdToUse,
           systemPrompt,
           usersCollection,
+          instruction,
         });
 
         await messagesCollection.insertOne({
