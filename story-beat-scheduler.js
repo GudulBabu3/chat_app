@@ -22,7 +22,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { MongoClient, ObjectId } = require('mongodb');
 
-const { loadProfile, loadWorldProfile, buildSystemPrompt } = require('./persona');
+const { loadProfile, loadWorldProfile, buildSystemPrompt, resolveStoryGuidance } = require('./persona');
 const { askPet } = require('./claude-bridge');
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
@@ -43,19 +43,38 @@ const worldProfile = loadWorldProfile();
 const ALLOWED_STICKERS = Object.keys(profile.stickers.guidance);
 
 // Never shown to the user - tells Claude, in-character, to proactively
-// share a concrete development instead of waiting to be asked. The full
-// CURRENT STORY guidance for today's phase is already in the system
-// prompt (see persona.js) - this instruction just tells it to lead with
-// that unprompted, the way real news gets shared, rather than waiting for
-// an opening in the conversation.
-const STORY_BEAT_INSTRUCTION =
-  'Proactively bring up a specific, concrete new development in what\'s currently going on with Dino-Day, completely unprompted - like real news you\'re eager to share, not a vague teaser. Open naturally in your own voice (something like "you know what..." or "so get this..." or however feels natural), describe one real, specific thing that happened, and end in a way that invites them to respond or ask more if they want to. Keep it a few sentences, not a whole essay.';
+// share TODAY'S SPECIFIC beat, completely unprompted. Bug found 2026-09-27:
+// this used to be a static generic string, relying entirely on the system
+// prompt's "CURRENT STORY" section to carry the actual specific content -
+// but persona.js labels that section "loose guidance...don't force it",
+// which is correct for regular chat/nudges but was giving each user's
+// resumed session free rein to invent its own version of the day's event
+// during a dedicated broadcast turn, instead of recounting the one cached
+// beat story-image.js's shared illustration was generated from. Result:
+// different users' proactive messages diverging from each other and from
+// the shared image. Fix: embed the literal resolved beat text directly in
+// the turn's instruction (same pattern special-broadcast.js's
+// buildSpecialInstruction already used, which never had this problem).
+function buildStoryBeatInstruction(beatText) {
+  return (
+    `Here's today's specific development in the Dino-Day story: ${beatText}\n\n` +
+    `Proactively bring this up with your person right now, completely unprompted - like real news you're eager to share, not a vague teaser. ` +
+    `Open naturally in your own voice (something like "you know what..." or "so get this..." or however feels natural), describe this specific thing that happened - don't invent a different development - and end in a way that invites them to respond or ask more if they want to. ` +
+    `Keep it a few sentences, not a whole essay.`
+  );
+}
 
 // Same idea, for resting-phase days (no Dino-Day plot active right now -
-// see resting-beat.js/persona.js's resolveStoryGuidance). Points at the
-// day's generated slice-of-life beat instead of the arc.
-const RESTING_BEAT_INSTRUCTION =
-  'Proactively share a small, specific, wholesome moment from an ordinary day with your friends, completely unprompted - like you\'re excited to tell them something cute or funny that happened, not a vague "things are good" update. Open naturally in your own voice, describe one real, specific thing, and end in a way that invites them to respond or ask more if they want to. Keep it a few sentences, not a whole essay. Dino-Day is not part of this at all right now.';
+// see resting-beat.js/persona.js's resolveStoryGuidance). Embeds the day's
+// generated slice-of-life beat text directly, for the same reason.
+function buildRestingBeatInstruction(beatText) {
+  return (
+    `Here's today's specific wholesome moment: ${beatText}\n\n` +
+    `Proactively share this with your person right now, completely unprompted - like you're excited to tell them something cute or funny that happened, not a vague "things are good" update. ` +
+    `Open naturally in your own voice, describe this specific thing - don't invent a different moment - and end in a way that invites them to respond or ask more if they want to. ` +
+    `Keep it a few sentences, not a whole essay. Dino-Day is not part of this at all right now.`
+  );
+}
 
 // Mirrors the same helper in nudge-scheduler.js: if resuming the stored
 // session fails (corrupted/missing transcript), start a fresh one instead
@@ -115,7 +134,13 @@ async function main() {
       restingBeatText = restingBeatDoc.text;
     }
 
-    const instruction = arcState.phase === 'resting' ? RESTING_BEAT_INSTRUCTION : STORY_BEAT_INSTRUCTION;
+    // Resolved once, shared by every user this run - the exact same text
+    // story-image.js generated today's shared illustration from - so the
+    // instruction below can embed it literally and keep every user's
+    // message and the image telling the same specific story.
+    const storyText = arcState.phase === 'resting' ? null : resolveStoryGuidance(arcState, now).text;
+    const instruction =
+      arcState.phase === 'resting' ? buildRestingBeatInstruction(restingBeatText) : buildStoryBeatInstruction(storyText);
 
     // Looked up once and reused for every user below - it's one shared image
     // for the whole app (see story-image.js), not generated per user. Just a
