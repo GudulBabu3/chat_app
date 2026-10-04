@@ -55,8 +55,7 @@ function buildImagePrompt({ text, title }) {
   );
 }
 
-async function requestImage(prompt) {
-  if (!BRIDGE_SECRET) throw new Error('STORY_IMAGE_BRIDGE_SECRET not set');
+async function requestImageOnce(prompt) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -73,6 +72,27 @@ async function requestImage(prompt) {
     return Buffer.from(await res.arrayBuffer());
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// A real chunk of these calls fail transiently - codex exec itself hanging
+// past the bridge's own 110s internal budget (see codex-image-bridge.js),
+// roughly a quarter of days in practice (see dev-workflow-and-infra-notes.md)
+// - not because anything is actually broken. The bridge's busy flag is
+// released again as soon as it responds (even on failure), so retrying
+// shortly after is safe and, going by the independent-per-attempt failure
+// rate observed, should succeed far more often than not. One retry only -
+// this still has to fail soft onto text-only eventually, not loop forever.
+const RETRY_DELAY_MS = 5_000;
+
+async function requestImage(prompt) {
+  if (!BRIDGE_SECRET) throw new Error('STORY_IMAGE_BRIDGE_SECRET not set');
+  try {
+    return await requestImageOnce(prompt);
+  } catch (err) {
+    console.warn(`[story-image] first attempt failed (${err.message}), retrying once...`);
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    return await requestImageOnce(prompt);
   }
 }
 
