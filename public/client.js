@@ -100,9 +100,43 @@ function scrollToBottom() {
 // shared by renderMessage (appends at the bottom, for live/initial messages)
 // and prependMessages (inserts at the top, for older history loaded by
 // scrolling up) so both paths stay in sync.
+// Builds the <img>/<video> for a message's optional media. Shared by
+// createMessageEl (media present from the start) and attachMediaToMessage
+// (media added to an already-rendered message afterward - see the
+// 'message-media' socket event below).
+function buildMediaEl(media) {
+  const mediaEl = document.createElement(media.type === 'video' ? 'video' : 'img');
+  mediaEl.className = 'msg-media';
+  mediaEl.src = media.url;
+  if (media.type === 'video') {
+    mediaEl.muted = true;
+    mediaEl.loop = true;
+    mediaEl.playsInline = true;
+    mediaEl.controls = true;
+  } else {
+    mediaEl.alt = '';
+  }
+  return mediaEl;
+}
+
+// Adds media to a message that's already on screen, in place - used when the
+// day's story image finishes generating after the text already went out
+// (see story-image-catchup.js). Does nothing if that message isn't currently
+// rendered (the user will simply see the image next time history loads) or
+// already has media.
+function attachMediaToMessage(messageId, media) {
+  if (!messageId || !media || !media.url) return;
+  const div = messagesEl.querySelector(`[data-message-id="${messageId}"]`);
+  if (!div || div.querySelector('.msg-media')) return;
+  const row = div.querySelector('.msg-row');
+  div.insertBefore(buildMediaEl(media), row);
+  scrollToBottom();
+}
+
 function createMessageEl(text, who, sticker, options = {}) {
   const div = document.createElement('div');
   div.className = `msg ${who}`;
+  if (options.id) div.dataset.messageId = options.id;
   const media = options.media;
 
   if (who === 'pet') {
@@ -133,20 +167,7 @@ function createMessageEl(text, who, sticker, options = {}) {
   // set by story-beat-scheduler.js (story artwork) or a future media drop.
   // Rendered below the text bubble, inside the same message, not as a
   // separate bubble.
-  if (media && media.url) {
-    const mediaEl = document.createElement(media.type === 'video' ? 'video' : 'img');
-    mediaEl.className = 'msg-media';
-    mediaEl.src = media.url;
-    if (media.type === 'video') {
-      mediaEl.muted = true;
-      mediaEl.loop = true;
-      mediaEl.playsInline = true;
-      mediaEl.controls = true;
-    } else {
-      mediaEl.alt = '';
-    }
-    div.appendChild(mediaEl);
-  }
+  if (media && media.url) div.appendChild(buildMediaEl(media));
 
   // Per-message replay button - lets you hear any pet reply on demand, not
   // just whichever one just arrived live. Hidden via CSS (#messages.tts-enabled)
@@ -181,7 +202,7 @@ function prependMessages(items) {
   const frag = document.createDocumentFragment();
   items.forEach((m) => {
     const variant = m.who === 'pet' ? stableStickerVariant(m.createdAt || m.text) : undefined;
-    frag.appendChild(createMessageEl(m.text, m.who, m.sticker, { variant, media: m.media }));
+    frag.appendChild(createMessageEl(m.text, m.who, m.sticker, { variant, media: m.media, id: m.id }));
   });
   messagesEl.insertBefore(frag, messagesEl.firstChild);
 }
@@ -262,7 +283,7 @@ socket.on('history', (payload) => {
   lastStickerVariant.clear();
   let latestPetPresentation = null;
   messages.forEach((m) => {
-    const div = renderMessage(m.text, m.who, m.sticker, { media: m.media });
+    const div = renderMessage(m.text, m.who, m.sticker, { media: m.media, id: m.id });
     const stickerImage = div.querySelector('.sticker-img');
     if (stickerImage) {
       latestPetPresentation = {
@@ -285,11 +306,15 @@ socket.on('user-message-echo', (payload) => {
 });
 
 socket.on('pet-message', (payload) => {
-  const div = renderMessage(payload.text, 'pet', payload.sticker, { animated: true, media: payload.media });
+  const div = renderMessage(payload.text, 'pet', payload.sticker, { animated: true, media: payload.media, id: payload.messageId });
   const stickerImage = div.querySelector('.sticker-img');
   const variant = Number(stickerImage && stickerImage.dataset.variant) || 1;
   setCurrentMood(payload.sticker, variant);
   if (voiceEnabled) playMessageAudio(payload.text, payload.sticker, div.querySelector('.msg-play-btn'));
+});
+
+socket.on('message-media', (payload) => {
+  if (payload) attachMediaToMessage(payload.messageId, payload.media);
 });
 
 socket.on('pet-error', (message) => {

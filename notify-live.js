@@ -19,7 +19,7 @@ const INTERNAL_ADMIN_SECRET = process.env.INTERNAL_ADMIN_SECRET || '';
 // story-beat-scheduler.js when today's story beat has an accompanying
 // AI-generated image (see story-image.js). Anything else calling this
 // simply omits it, same as before.
-async function notifyLiveServer({ userId, text, sticker, media }) {
+async function notifyLiveServer({ userId, text, sticker, media, messageId }) {
   if (!INTERNAL_ADMIN_SECRET) {
     console.warn('[notify-live] INTERNAL_ADMIN_SECRET not set - message saved, but will only appear on next reload.');
     return;
@@ -28,7 +28,7 @@ async function notifyLiveServer({ userId, text, sticker, media }) {
     const res = await fetch(`http://127.0.0.1:${PORT}/internal/notify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': INTERNAL_ADMIN_SECRET },
-      body: JSON.stringify({ userId, text, sticker, media }),
+      body: JSON.stringify({ userId, text, sticker, media, messageId }),
     });
     if (!res.ok) {
       console.warn(`[notify-live] live server responded ${res.status} - message is saved but may only show on next reload.`);
@@ -38,4 +38,27 @@ async function notifyLiveServer({ userId, text, sticker, media }) {
   }
 }
 
-module.exports = { notifyLiveServer };
+// Tells the live server to add media to a message it already delivered (see
+// story-image-catchup.js) so open tabs update in place. Same fail-soft
+// philosophy: the Mongo update is the source of truth, this is just the live
+// nudge - a missed one just means the image appears on next load.
+async function attachMediaLive({ userId, messageId, media }) {
+  if (!INTERNAL_ADMIN_SECRET) {
+    console.warn('[notify-live] INTERNAL_ADMIN_SECRET not set - media saved, but open tabs will only show it on next reload.');
+    return;
+  }
+  try {
+    const res = await fetch(`http://127.0.0.1:${PORT}/internal/attach-media`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': INTERNAL_ADMIN_SECRET },
+      body: JSON.stringify({ userId, messageId, media }),
+    });
+    if (!res.ok) {
+      console.warn(`[notify-live] live server responded ${res.status} to attach-media - saved, but may only show on next reload.`);
+    }
+  } catch (err) {
+    console.warn(`[notify-live] could not reach the live server for attach-media (${err.message}) - saved, will show on next reload.`);
+  }
+}
+
+module.exports = { notifyLiveServer, attachMediaLive };

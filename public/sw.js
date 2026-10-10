@@ -14,14 +14,14 @@
 //
 // CACHE_VERSION: bump this string whenever the precache list below changes,
 // so the old cache is dropped on activate instead of lingering forever.
-const CACHE_VERSION = 'v14-lazy-mood-gifs';
+const CACHE_VERSION = 'v15-inline-media-attach';
 const STATIC_CACHE = `tukurumukuru-static-${CACHE_VERSION}`;
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
   '/style.css?v=11',
   '/theme.js?v=11',
-  '/client.js?v=12',
+  '/client.js?v=13',
   '/settings-client.js?v=11',
   '/login-client.js',
   '/manifest.webmanifest',

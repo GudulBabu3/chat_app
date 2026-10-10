@@ -327,6 +327,7 @@ app.get('/api/messages', requireAuth, async (req, res) => {
   res.json({
     ok: true,
     messages: older.map((m) => ({
+      id: m._id.toString(),
       text: m.text,
       who: m.role === 'user' ? 'own' : 'pet',
       sticker: m.role === 'pet' ? m.sticker || DEFAULT_STICKER : undefined,
@@ -424,12 +425,12 @@ async function start() {
     if (!INTERNAL_ADMIN_SECRET || req.get('X-Internal-Secret') !== INTERNAL_ADMIN_SECRET) {
       return res.status(403).json({ ok: false, error: 'forbidden' });
     }
-    const { userId, text, sticker, media } = req.body || {};
+    const { userId, text, sticker, media, messageId } = req.body || {};
     if (!userId || !text) {
       return res.status(400).json({ ok: false, error: 'userId and text required' });
     }
 
-    notifyUserSockets(userId, { text, sticker: sticker || DEFAULT_STICKER, media: media || undefined, createdAt: new Date() });
+    notifyUserSockets(userId, { text, sticker: sticker || DEFAULT_STICKER, media: media || undefined, messageId: messageId || undefined, createdAt: new Date() });
 
     if (!isUserVisible(userId)) {
       sendPushToUser(pushSubscriptionsCollection, userId, { title: profile.name, body: text, url: '/' }).catch(
@@ -437,6 +438,26 @@ async function start() {
       );
     }
 
+    res.json({ ok: true });
+  });
+
+  // Companion to /internal/notify: lets story-image-catchup.js add today's
+  // story image to a story-beat message that already went out text-only,
+  // updating it in place on any open tab instead of sending a second
+  // message. No push notification - nothing new to announce, the message
+  // already did that. Same loopback + shared-secret protection.
+  app.post('/internal/attach-media', async (req, res) => {
+    if (!INTERNAL_ADMIN_SECRET || req.get('X-Internal-Secret') !== INTERNAL_ADMIN_SECRET) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+    const { userId, messageId, media } = req.body || {};
+    if (!userId || !messageId || !media || !media.url) {
+      return res.status(400).json({ ok: false, error: 'userId, messageId and media required' });
+    }
+    const sockets = userSockets.get(userId);
+    if (sockets) {
+      for (const s of sockets) s.emit('message-media', { messageId, media });
+    }
     res.json({ ok: true });
   });
 
@@ -771,6 +792,7 @@ async function start() {
     history.reverse();
     socket.emit('history', {
       messages: history.map((m) => ({
+        id: m._id.toString(),
         text: m.text,
         who: m.role === 'user' ? 'own' : 'pet',
         sticker: m.role === 'pet' ? m.sticker || DEFAULT_STICKER : undefined,

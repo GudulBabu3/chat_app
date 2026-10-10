@@ -180,7 +180,7 @@ async function main() {
           instruction,
         });
 
-        await messagesCollection.insertOne({
+        const inserted = await messagesCollection.insertOne({
           userId, // string, matching how server.js/nudge-scheduler.js store it
           role: 'pet',
           text,
@@ -190,7 +190,7 @@ async function main() {
           storyBeat: true,
         });
 
-        await notifyLiveServer({ userId, text, sticker, media });
+        await notifyLiveServer({ userId, text, sticker, media, messageId: inserted.insertedId.toString() });
         await usersCollection.updateOne({ _id: user._id }, { $set: { lastStoryBeatDate: today } });
 
         console.log(`[story-beat] sent to user ${userId}.`);
