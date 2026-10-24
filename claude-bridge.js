@@ -449,15 +449,19 @@ function buildFactsJsonSchema() {
     type: 'object',
     properties: {
       facts: { type: 'array', items: { type: 'string' } },
+      identityFacts: { type: 'array', items: { type: 'string' } },
       selfFacts: { type: 'array', items: { type: 'string' } },
       storyBeats: { type: 'array', items: { type: 'string' } },
     },
-    required: ['facts', 'selfFacts', 'storyBeats'],
+    required: ['facts', 'identityFacts', 'selfFacts', 'storyBeats'],
     additionalProperties: false,
   });
 }
 
-function buildFactsPrompt({ existingFacts, existingSelfFacts, existingStoryBeats, transcript }) {
+function buildFactsPrompt({ existingFacts, existingIdentityFacts, existingSelfFacts, existingStoryBeats, transcript }) {
+  const existingIdentityBlock = (existingIdentityFacts || []).length
+    ? `\n\nIDENTITY FACTS YOU ALREADY HAVE ON FILE ABOUT THE PERSON (do not repeat these - only return identity facts that are genuinely new, or that correct/update one of these):\n${existingIdentityFacts.map((f) => `- ${f}`).join('\n')}`
+    : '';
   const existingBlock = (existingFacts || []).length
     ? `\n\nFACTS YOU ALREADY HAVE ON FILE ABOUT THE PERSON (do not repeat these - only return facts that are genuinely new, or that correct/update one of these):\n${existingFacts.map((f) => `- ${f}`).join('\n')}`
     : '';
@@ -468,17 +472,19 @@ function buildFactsPrompt({ existingFacts, existingSelfFacts, existingStoryBeats
     ? `\n\nSTORY BEATS THE PET HAS ALREADY TOLD RECENTLY, MOST RECENT LAST (do not repeat these - only return beats that are genuinely new developments beyond these):\n${existingStoryBeats.map((f) => `- ${f}`).join('\n')}`
     : '';
 
-  return `You are extracting three kinds of durable information from a conversation between a person and a companion-pet app, so they can be remembered permanently and reintroduced later even if the chat session's own memory resets or gets summarized away.
+  return `You are extracting four kinds of durable information from a conversation between a person and a companion-pet app, so they can be remembered permanently and reintroduced later even if the chat session's own memory resets or gets summarized away.
 
-Read the conversation excerpt below and produce three lists:
+Read the conversation excerpt below and produce four lists:
 
-1. "facts" - durable facts the PERSON stated about themselves: their name, job, family, pets, hobbies, preferences, or other life details that would still be true weeks from now. Each fact should be a short, self-contained sentence (e.g. "Her name is Priya." or "She has a dog named Bruno.").
+1. "identityFacts" - the small set of CORE identity facts about the person that must never be forgotten: their actual name or what they want to be called/nicknames, and immediate key relationships (e.g. spouse/partner's name). Only put something here if it is genuinely identity-defining; a friend or coworker mentioned in passing belongs in "facts" below instead. This list should usually stay very short (a handful of entries at most).
 
-2. "selfFacts" - durable, STATIC things the PET itself said, claimed, or committed to that it should stay consistent with going forward - promises it made (e.g. "meet at lunch"), nicknames it gave the person or itself, or other simple standing claims about itself or its world. Each entry should be a short, self-contained sentence written from the pet's own point of view.
+2. "facts" - other durable facts the PERSON stated about themselves: job, family, pets, hobbies, preferences, or other life details that would still be true weeks from now - excluding core identity info already captured in "identityFacts" above. Each fact should be a short, self-contained sentence (e.g. "She has a dog named Bruno.").
 
-3. "storyBeats" - specific, EVOLVING narrative content the pet shared in freeform conversation: anecdotes it told (e.g. a specific mischief story), or updates to an ongoing improvised subplot (e.g. the latest thing a friend or rival character has been doing) that it invented itself, outside of the app's own separate scripted story-arc content. Unlike selfFacts, these are allowed to supersede or move past earlier beats rather than staying fixed forever - capture the latest concrete development so the pet can pick the thread back up or keep it moving forward, not contradict or repeat itself. Each entry should be a short, self-contained sentence written from the pet's own point of view (e.g. "Told them about a time it startled a tree-climber by camouflaging too well." or "Said Dino-Day is now forcing Stuart to write him a theme song.").
+3. "selfFacts" - durable, STATIC things the PET itself said, claimed, or committed to that it should stay consistent with going forward - promises it made (e.g. "meet at lunch"), nicknames it gave the person or itself, or other simple standing claims about itself or its world. Each entry should be a short, self-contained sentence written from the pet's own point of view.
 
-Do NOT include: passing moods or truly disposable one-off remarks with no continuity value ("I'm tired today"), guesses or inferences you aren't confident were actually stated, or anything already in the "already on file" lists below for its category. If there is nothing new for a category, return an empty list for it - do not force an entry.${existingBlock}${existingSelfBlock}${existingBeatsBlock}
+4. "storyBeats" - specific, EVOLVING narrative content the pet shared in freeform conversation: anecdotes it told (e.g. a specific mischief story), or updates to an ongoing improvised subplot (e.g. the latest thing a friend or rival character has been doing) that it invented itself, outside of the app's own separate scripted story-arc content. Unlike selfFacts, these are allowed to supersede or move past earlier beats rather than staying fixed forever - capture the latest concrete development so the pet can pick the thread back up or keep it moving forward, not contradict or repeat itself. Each entry should be a short, self-contained sentence written from the pet's own point of view (e.g. "Told them about a time it startled a tree-climber by camouflaging too well." or "Said Dino-Day is now forcing Stuart to write him a theme song.").
+
+Do NOT include: passing moods or truly disposable one-off remarks with no continuity value ("I'm tired today"), guesses or inferences you aren't confident were actually stated, or anything already in the "already on file" lists below for its category. If there is nothing new for a category, return an empty list for it - do not force an entry.${existingIdentityBlock}${existingBlock}${existingSelfBlock}${existingBeatsBlock}
 
 CONVERSATION EXCERPT:
 ${transcript}`;
@@ -515,9 +521,9 @@ ${transcript}`;
  * @param {string} opts.cwd
  * @returns {Promise<{ facts: string[], selfFacts: string[], storyBeats: string[], costUsd: number|null }>}
  */
-function extractFacts({ existingFacts, existingSelfFacts, existingStoryBeats, transcript, cwd }) {
+function extractFacts({ existingFacts, existingIdentityFacts, existingSelfFacts, existingStoryBeats, transcript, cwd }) {
   const args = [
-    '-p', buildFactsPrompt({ existingFacts, existingSelfFacts, existingStoryBeats, transcript }),
+    '-p', buildFactsPrompt({ existingFacts, existingIdentityFacts, existingSelfFacts, existingStoryBeats, transcript }),
     '--session-id', crypto.randomUUID(), // fresh, one-shot - never resumed
     '--output-format', 'json',
     '--json-schema', buildFactsJsonSchema(),
@@ -528,7 +534,7 @@ function extractFacts({ existingFacts, existingSelfFacts, existingStoryBeats, tr
     '--max-budget-usd', FACTS_BUDGET_USD,
   ];
 
-  const EMPTY = { facts: [], selfFacts: [], storyBeats: [], costUsd: null };
+  const EMPTY = { facts: [], identityFacts: [], selfFacts: [], storyBeats: [], costUsd: null };
   const cleanList = (value) =>
     Array.isArray(value) ? value.filter((f) => typeof f === 'string' && f.trim()).map((f) => f.trim()) : [];
 
@@ -554,6 +560,7 @@ function extractFacts({ existingFacts, existingSelfFacts, existingStoryBeats, tr
           if (structured) {
             resolve({
               facts: cleanList(structured.facts),
+              identityFacts: cleanList(structured.identityFacts),
               selfFacts: cleanList(structured.selfFacts),
               storyBeats: cleanList(structured.storyBeats),
               costUsd,
@@ -588,4 +595,98 @@ function mergeFacts(existingFacts, newFacts, maxFacts = 60) {
   return merged.length > maxFacts ? merged.slice(merged.length - maxFacts) : merged;
 }
 
-module.exports = { askPet, generateStoryPremise, generateRestingBeat, generateSpecialBeat, extractFacts, mergeFacts, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };
+// One-shot, non-conversational call that compresses a batch of a person's
+// OLDER facts into fewer, denser ones - used by mergeFactsWithCondensation
+// below instead of just dropping the oldest facts once the list grows past
+// its cap (the old FIFO-eviction behavior - see mergeFacts above - is what
+// quietly dropped a user's own name once enough newer facts piled on top of
+// it). Fails open: on any error, resolves the ORIGINAL uncondensed facts
+// unchanged, since losing nothing is more important than staying under the
+// cap for one extra cycle.
+function buildCondenseJsonSchema() {
+  return JSON.stringify({
+    type: 'object',
+    properties: { condensed: { type: 'array', items: { type: 'string' } } },
+    required: ['condensed'],
+    additionalProperties: false,
+  });
+}
+
+function buildCondensePrompt({ factsToCondense }) {
+  return `You are compressing a batch of old facts about a person into a smaller set of denser facts, so a long-running companion app's memory of them doesn't grow without bound while still keeping what matters.
+
+OLD FACTS (oldest first):
+${factsToCondense.map((f) => `- ${f}`).join('\n')}
+
+Rewrite these into at most ${Math.max(5, Math.ceil(factsToCondense.length / 4))} condensed facts. Rules:
+- Combine closely related facts into one denser sentence where it loses nothing important (e.g. several single-day illness symptoms become one "was sick with X, Y, Z symptoms around <timeframe>" fact).
+- Keep anything identity-adjacent, relationship-defining, or likely to matter long-term (names, nicknames, people in their life, recurring routines, significant events) - condensing is about density, not deleting the important parts.
+- Drop only genuinely disposable one-off trivia that has no lasting relevance (a single meal, a single day's weather, a single routine errand) if space is needed, but prefer compressing over dropping.
+- Each condensed fact should still be a short, self-contained sentence.
+
+Return the condensed list, oldest-first.`;
+}
+
+function condenseFacts({ factsToCondense, cwd }) {
+  if (!factsToCondense || factsToCondense.length === 0) return Promise.resolve([]);
+  const args = [
+    '-p', buildCondensePrompt({ factsToCondense }),
+    '--session-id', crypto.randomUUID(),
+    '--output-format', 'json',
+    '--json-schema', buildCondenseJsonSchema(),
+    '--tools', '',
+    '--strict-mcp-config',
+    '--model', FACTS_MODEL,
+    '--fallback-model', FACTS_MODEL,
+    '--max-budget-usd', FACTS_BUDGET_USD,
+  ];
+
+  return new Promise((resolve) => {
+    execFile(
+      CLAUDE_BIN,
+      args,
+      { cwd, timeout: CALL_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
+      (err, stdout) => {
+        if (err) {
+          console.error('[condense facts] claude CLI failed, keeping facts uncondensed:', err.message);
+          resolve(factsToCondense);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout);
+          const structured = parsed.structured_output;
+          const condensed = Array.isArray(structured?.condensed)
+            ? structured.condensed.filter((f) => typeof f === 'string' && f.trim()).map((f) => f.trim())
+            : null;
+          if (condensed && condensed.length) {
+            resolve(condensed);
+          } else {
+            console.error('[condense facts] missing/invalid structured_output, keeping facts uncondensed:', String(stdout).slice(0, 500));
+            resolve(factsToCondense);
+          }
+        } catch (parseErr) {
+          console.error('[condense facts] could not parse claude CLI output, keeping facts uncondensed:', parseErr.message);
+          resolve(factsToCondense);
+        }
+      }
+    );
+  });
+}
+
+// Drop-in upgrade over mergeFacts for the regular (non-identity) facts
+// list: dedupes and appends exactly like mergeFacts, but once the merged
+// list exceeds maxFacts, condenses the oldest batch (condenseBatchSize
+// beyond the overflow) via condenseFacts instead of just slicing them off.
+async function mergeFactsWithCondensation({ existingFacts, newFacts, cwd, maxFacts = 120, condenseBatchSize = 30 }) {
+  const merged = mergeFacts(existingFacts, newFacts, Infinity);
+  if (merged.length <= maxFacts) return merged;
+
+  const overflow = merged.length - maxFacts;
+  const splitPoint = Math.min(merged.length, overflow + condenseBatchSize);
+  const toCondense = merged.slice(0, splitPoint);
+  const rest = merged.slice(splitPoint);
+  const condensed = await condenseFacts({ factsToCondense: toCondense, cwd });
+  return [...condensed, ...rest];
+}
+
+module.exports = { askPet, generateStoryPremise, generateRestingBeat, generateSpecialBeat, extractFacts, mergeFacts, condenseFacts, mergeFactsWithCondensation, CLAUDE_BIN, DEFAULT_STICKER, extractStickerReply };

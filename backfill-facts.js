@@ -30,7 +30,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const fs = require('fs');
 const { MongoClient } = require('mongodb');
-const { extractFacts, mergeFacts } = require('./claude-bridge');
+const { extractFacts, mergeFacts, mergeFactsWithCondensation } = require('./claude-bridge');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.DB_NAME || 'petchat';
@@ -57,6 +57,9 @@ function chunk(array, size) {
 // facts/selfFacts since it's meant to reflect what's recent, not pile up
 // forever across a user's whole history.
 const STORY_BEATS_CAP = 20;
+const FACTS_CAP = 120;
+const FACTS_CONDENSE_BATCH = 30;
+const IDENTITY_FACTS_CAP = 20;
 
 async function backfillOneUser(usersCollection, messagesCollection, user, sinceDate) {
   const userId = user._id.toString();
@@ -70,6 +73,7 @@ async function backfillOneUser(usersCollection, messagesCollection, user, sinceD
   }
 
   let facts = user.facts || [];
+  let identityFacts = user.identityFacts || [];
   let selfFacts = user.selfFacts || [];
   let storyBeats = user.storyBeats || [];
   const chunks = chunk(history, CHUNK_SIZE);
@@ -78,29 +82,45 @@ async function backfillOneUser(usersCollection, messagesCollection, user, sinceD
 
   for (const [i, batch] of chunks.entries()) {
     const transcript = batch.map((m) => `${m.role === 'user' ? 'User' : 'Pet'}: ${m.text}`).join('\n');
-    const { facts: newFacts, selfFacts: newSelfFacts, storyBeats: newStoryBeats } = await extractFacts({
+    const {
+      facts: newFacts,
+      identityFacts: newIdentityFacts,
+      selfFacts: newSelfFacts,
+      storyBeats: newStoryBeats,
+    } = await extractFacts({
       existingFacts: facts,
+      existingIdentityFacts: identityFacts,
       existingSelfFacts: selfFacts,
       existingStoryBeats: storyBeats,
       transcript,
       cwd: CLAUDE_CWD,
     });
-    if (newFacts.length) facts = mergeFacts(facts, newFacts);
+    if (newIdentityFacts.length) identityFacts = mergeFacts(identityFacts, newIdentityFacts, IDENTITY_FACTS_CAP);
+    if (newFacts.length) {
+      facts = await mergeFactsWithCondensation({
+        existingFacts: facts,
+        newFacts,
+        cwd: CLAUDE_CWD,
+        maxFacts: FACTS_CAP,
+        condenseBatchSize: FACTS_CONDENSE_BATCH,
+      });
+    }
     if (newSelfFacts.length) selfFacts = mergeFacts(selfFacts, newSelfFacts);
     if (newStoryBeats.length) storyBeats = mergeFacts(storyBeats, newStoryBeats, STORY_BEATS_CAP);
-    if (newFacts.length || newSelfFacts.length || newStoryBeats.length) {
+    if (newFacts.length || newIdentityFacts.length || newSelfFacts.length || newStoryBeats.length) {
       console.log(
-        `  chunk ${i + 1}/${chunks.length}: +${newFacts.length} fact(s), +${newSelfFacts.length} self-fact(s), +${newStoryBeats.length} story beat(s)`
+        `  chunk ${i + 1}/${chunks.length}: +${newFacts.length} fact(s), +${newIdentityFacts.length} identity fact(s), +${newSelfFacts.length} self-fact(s), +${newStoryBeats.length} story beat(s)`
       );
     } else {
       console.log(`  chunk ${i + 1}/${chunks.length}: nothing new`);
     }
   }
 
-  await usersCollection.updateOne({ _id: user._id }, { $set: { facts, selfFacts, storyBeats } });
+  await usersCollection.updateOne({ _id: user._id }, { $set: { facts, identityFacts, selfFacts, storyBeats } });
   console.log(
-    `${user.username}: saved ${facts.length} fact(s) about them, ${selfFacts.length} self-fact(s), ${storyBeats.length} story beat(s).`
+    `${user.username}: saved ${facts.length} fact(s) about them, ${identityFacts.length} identity fact(s), ${selfFacts.length} self-fact(s), ${storyBeats.length} story beat(s).`
   );
+  identityFacts.forEach((f, idx) => console.log(`  identity fact ${idx + 1}. ${f}`));
   facts.forEach((f, idx) => console.log(`  fact ${idx + 1}. ${f}`));
   selfFacts.forEach((f, idx) => console.log(`  self-fact ${idx + 1}. ${f}`));
   storyBeats.forEach((f, idx) => console.log(`  story beat ${idx + 1}. ${f}`));

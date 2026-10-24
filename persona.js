@@ -140,7 +140,7 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
   // userFacts lives in this same options bag (despite the "story" name) to
   // avoid a third parameter - see claude-bridge.js's extractFacts and
   // server.js's extractAndSaveUserFacts for where this list comes from.
-  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date(), userFacts = [], selfFacts = [], storyBeats = [], restingBeatText = null } = storyContext;
+  const { worldProfile = null, arcState = null, joinedAt = null, now = new Date(), identityFacts = [], userFacts = [], selfFacts = [], storyBeats = [], restingBeatText = null } = storyContext;
   const list = (arr) => arr.map((x) => `- ${x}`).join('\n');
   const stickerLines = Object.entries(p.stickers.guidance)
     .map(([key, desc]) => `- "${key}": ${desc}`)
@@ -197,6 +197,16 @@ function buildSystemPrompt(profile, adminState = {}, storyContext = {}) {
   // summarize/compact long conversations (or need to restart from scratch
   // if a --resume ever fails), and either way this block still gets
   // rebuilt fresh every turn so nothing your person told you gets lost.
+  // Small, protected set of core identity facts (name/nicknames, key
+  // relationships) - unlike userFactsBlock below, this never gets
+  // FIFO-evicted, specifically so a long conversation can't quietly push
+  // the person's own name off the list the way the plain facts list once
+  // did. Rendered first/above userFactsBlock since it's the most
+  // important thing to never get wrong.
+  const identityFactsBlock = identityFacts.length
+    ? `\n\nWHO YOUR PERSON IS (core identity - never forget this, no matter how long you've been chatting or how much else has happened)\n${list(identityFacts)}`
+    : '';
+
   const userFactsBlock = userFacts.length
     ? `\n\nWHAT YOU ALREADY KNOW ABOUT YOUR PERSON (things they've told you in past conversations - remember these and weave them in naturally, even for a conversation you don't specifically recall)\n${list(userFacts)}`
     : '';
@@ -257,7 +267,7 @@ LIFESPAN
 ${p.lifespanFact}
 
 SOCIAL BEHAVIOR
-${p.socialBehavior}${todaySpecialBlock}${userFactsBlock}${selfFactsBlock}${villainBlock}${friendsBlock}${storyBlock}${storyBeatsBlock}${todayBlock}
+${p.socialBehavior}${todaySpecialBlock}${identityFactsBlock}${userFactsBlock}${selfFactsBlock}${villainBlock}${friendsBlock}${storyBlock}${storyBeatsBlock}${todayBlock}
 
 HOW TO RESPOND
 Tone: ${p.responseStyle.tone}

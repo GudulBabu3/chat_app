@@ -11,7 +11,7 @@ const { Server } = require('socket.io');
 const { MongoClient, ObjectId } = require('mongodb');
 
 const { loadProfile, loadWorldProfile, buildSystemPrompt } = require('./persona');
-const { askPet, generateStoryPremise, extractFacts, mergeFacts } = require('./claude-bridge');
+const { askPet, generateStoryPremise, extractFacts, mergeFacts, mergeFactsWithCondensation } = require('./claude-bridge');
 const { hashPassword, verifyPassword, isRateLimited, recordAttempt, clearAttempts } = require('./auth');
 const petAdmin = require('./pet-admin');
 const storyArc = require('./story-arc');
@@ -73,29 +73,44 @@ const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
 // asides naturally aging out is the point, unlike a person's name or a
 // standing promise, which should stick around indefinitely.
 const STORY_BEATS_CAP = 20;
+// facts used to be hard-capped at 60 with oldest-first FIFO eviction via
+// mergeFacts - exactly what quietly dropped a user's own name/nicknames
+// once enough day-to-day facts piled on top of it. Fix: a small, separate
+// identityFacts list (name/nicknames, key relationships) is kept via plain
+// mergeFacts with a generous cap that should practically never be hit,
+// while the bigger day-to-day facts list condenses its oldest entries
+// instead of deleting them once over FACTS_CAP - see claude-bridge.js's
+// mergeFactsWithCondensation.
+const FACTS_CAP = 120;
+const FACTS_CONDENSE_BATCH = 30;
+const IDENTITY_FACTS_CAP = 20;
 
 async function extractAndSaveUserFacts(userObjectId, userMessage, petMessage, petMessageId) {
   const current = await usersCollection.findOne(
     { _id: userObjectId },
-    { projection: { facts: 1, selfFacts: 1, storyBeats: 1 } }
+    { projection: { facts: 1, identityFacts: 1, selfFacts: 1, storyBeats: 1 } }
   );
   const existingFacts = current?.facts || [];
+  const existingIdentityFacts = current?.identityFacts || [];
   const existingSelfFacts = current?.selfFacts || [];
   const existingStoryBeats = current?.storyBeats || [];
   // Scans the whole exchange (both sides), not just the user's half - see
   // claude-bridge.js's extractFacts for why: it now pulls durable facts
-  // about the person, durable things the pet itself said/promised, AND
-  // evolving freeform story beats the pet shared, all in the same pass,
-  // so the pet stays consistent with (and can continue) its own past
-  // claims and narrative threads too, not just what the person told it.
+  // about the person (split into a small protected identityFacts set and
+  // the regular facts set), durable things the pet itself said/promised,
+  // AND evolving freeform story beats the pet shared, all in the same
+  // pass, so the pet stays consistent with (and can continue) its own
+  // past claims and narrative threads too, not just what the person told it.
   const transcript = `User: ${userMessage}\nPet: ${petMessage}`;
   const {
     facts: newFacts,
+    identityFacts: newIdentityFacts,
     selfFacts: newSelfFacts,
     storyBeats: newStoryBeats,
     costUsd: factsCostUsd,
   } = await extractFacts({
     existingFacts,
+    existingIdentityFacts,
     existingSelfFacts,
     existingStoryBeats,
     transcript,
@@ -108,9 +123,22 @@ async function extractAndSaveUserFacts(userObjectId, userMessage, petMessage, pe
   if (petMessageId && typeof factsCostUsd === 'number') {
     await messagesCollection.updateOne({ _id: petMessageId }, { $set: { factsCostUsd } });
   }
-  if (!newFacts.length && !newSelfFacts.length && !newStoryBeats.length) return;
+  if (!newFacts.length && !newIdentityFacts.length && !newSelfFacts.length && !newStoryBeats.length) return;
   const update = {};
-  if (newFacts.length) update.facts = mergeFacts(existingFacts, newFacts);
+  // Identity facts (name/nicknames, key relationships) never go through
+  // FIFO eviction - this is the small, protected list.
+  if (newIdentityFacts.length) update.identityFacts = mergeFacts(existingIdentityFacts, newIdentityFacts, IDENTITY_FACTS_CAP);
+  // Regular facts condense their oldest entries instead of dropping them
+  // once over the cap - see claude-bridge.js's mergeFactsWithCondensation.
+  if (newFacts.length) {
+    update.facts = await mergeFactsWithCondensation({
+      existingFacts,
+      newFacts,
+      cwd: CLAUDE_CWD,
+      maxFacts: FACTS_CAP,
+      condenseBatchSize: FACTS_CONDENSE_BATCH,
+    });
+  }
   if (newSelfFacts.length) update.selfFacts = mergeFacts(existingSelfFacts, newSelfFacts);
   if (newStoryBeats.length) update.storyBeats = mergeFacts(existingStoryBeats, newStoryBeats, STORY_BEATS_CAP);
   await usersCollection.updateOne({ _id: userObjectId }, { $set: update });
@@ -804,11 +832,11 @@ async function start() {
       hasMore: history.length === HISTORY_LIMIT,
     });
 
-    async function callClaude(userMessage, isFirstTurn, sessionIdToUse, userFacts, selfFacts, storyBeats) {
+    async function callClaude(userMessage, isFirstTurn, sessionIdToUse, identityFacts, userFacts, selfFacts, storyBeats) {
       // Built fresh on every turn (not cached at startup) so an admin edit
       // via admin.js - a new skill, a like/dislike, today's special note -
-      // takes effect on the very next message, no restart needed. userFacts,
-      // selfFacts and storyBeats are the same idea applied to what this
+      // takes effect on the very next message, no restart needed. identityFacts,
+      // userFacts, selfFacts and storyBeats are the same idea applied to what this
       // specific person has told the pet about themselves, what the pet
       // itself has said/promised, and what freeform story it's been
       // telling - see extractAndSaveUserFacts below.
@@ -817,6 +845,7 @@ async function start() {
         arcState: await storyArc.getArcState(storyArcCollection),
         joinedAt: user.createdAt,
         now: new Date(),
+        identityFacts,
         userFacts,
         selfFacts,
         storyBeats,
@@ -881,6 +910,7 @@ async function start() {
           userMessage,
           isFirstTurn,
           sessionIdToUse,
+          freshUser.identityFacts || [],
           freshUser.facts || [],
           freshUser.selfFacts || [],
           freshUser.storyBeats || []

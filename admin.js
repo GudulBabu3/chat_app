@@ -23,6 +23,7 @@
 //   node admin.js arc skip
 //   node admin.js arc reset
 //   node admin.js facts <username> [list|add <text>|remove <n>|clear]
+//   node admin.js identityfacts <username> [list|add <text>|remove <n>|clear]
 //   node admin.js selffacts <username> [list|add <text>|remove <n>|clear]
 //   node admin.js storybeats <username> [list|add <text>|remove <n>|clear]
 //
@@ -68,6 +69,7 @@ const USAGE = `Usage:
   node admin.js special <set|show|clear> [text]
   node admin.js arc <status|start|skip|reset>
   node admin.js facts <username> [list|add <text>|remove <n>|clear]
+  node admin.js identityfacts <username> [list|add <text>|remove <n>|clear]
   node admin.js selffacts <username> [list|add <text>|remove <n>|clear]
   node admin.js storybeats <username> [list|add <text>|remove <n>|clear]
   node admin.js status`;
@@ -263,6 +265,7 @@ async function main() {
       }
 
       case 'facts':
+      case 'identityfacts':
       case 'selffacts':
       case 'storybeats': {
         // Same shape for all three: `facts` is what the pet knows about
@@ -271,9 +274,10 @@ async function main() {
         // been telling (recency-capped, unlike the other two) - see
         // claude-bridge.js's extractFacts, which fills all three
         // automatically during live chat.
-        const field = { facts: 'facts', selffacts: 'selfFacts', storybeats: 'storyBeats' }[command];
+        const field = { facts: 'facts', identityfacts: 'identityFacts', selffacts: 'selfFacts', storybeats: 'storyBeats' }[command];
         const label = {
           facts: 'Facts on file for',
+          identityfacts: 'Identity facts on file for',
           selffacts: 'Self-facts on file for',
           storybeats: 'Story beats on file for',
         }[command];
