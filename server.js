@@ -60,6 +60,22 @@ function randomNudgeDelayMs() {
 // up this project's own files, CLAUDE.md, or git context as extra "memory".
 const CLAUDE_CWD = path.join(__dirname, '.claude-cwd');
 
+// Forces a brand-new Claude CLI session at least this often, even for an
+// otherwise-healthy --resume, because --resume does NOT pick up an updated
+// --system-prompt - confirmed via a direct test on 2026-10-24 (a changed
+// --system-prompt on a resumed session was silently ignored, the CLI stuck
+// with whatever was set when the session was first created). That means
+// facts/identityFacts/selfFacts/storyBeats and admin-edited content
+// (skills, likes, today's special) can silently stop reaching a
+// conversation once it's past its first turn, no matter how often this
+// file rebuilds systemPrompt fresh (see persistent-user-facts-plan.md for
+// the incident this was found during). 24h matches this app's existing
+// daily rhythm (story beats, nudges) and is safe because every bit of
+// durable memory lives in Mongo independently of the CLI session and gets
+// reinjected into the fresh session's system prompt regardless - see
+// sendToPet below.
+const SESSION_REFRESH_MS = 24 * 60 * 60 * 1000;
+
 // Looks up a user's current facts list, asks claude-bridge.js's extractFacts
 // whether this message contains anything new, and persists the merged
 // result. See claude-bridge.js for why this exists: TukuruMukuru's only
@@ -872,7 +888,7 @@ async function start() {
           cwd: CLAUDE_CWD,
           allowedStickers: ALLOWED_STICKERS,
         });
-        await usersCollection.updateOne({ _id: user._id }, { $set: { claudeSessionId: freshId, hasClaudeSession: true } });
+        await usersCollection.updateOne({ _id: user._id }, { $set: { claudeSessionId: freshId, hasClaudeSession: true, claudeSessionStartedAt: new Date() } });
         result.sessionWasReset = true;
         return result;
       }
@@ -903,8 +919,12 @@ async function start() {
         }
 
         const freshUser = await usersCollection.findOne({ _id: user._id });
-        const isFirstTurn = !freshUser.hasClaudeSession;
-        const sessionIdToUse = freshUser.claudeSessionId || crypto.randomUUID();
+        const sessionAgeMs = freshUser.claudeSessionStartedAt
+          ? Date.now() - new Date(freshUser.claudeSessionStartedAt).getTime()
+          : Infinity;
+        const sessionNeedsRefresh = freshUser.hasClaudeSession && sessionAgeMs > SESSION_REFRESH_MS;
+        const isFirstTurn = !freshUser.hasClaudeSession || sessionNeedsRefresh;
+        const sessionIdToUse = isFirstTurn ? crypto.randomUUID() : freshUser.claudeSessionId;
 
         const { text, sticker, sessionWasReset, costUsd } = await callClaude(
           userMessage,
@@ -919,7 +939,7 @@ async function start() {
         if (isFirstTurn) {
           await usersCollection.updateOne(
             { _id: user._id },
-            { $set: { claudeSessionId: sessionIdToUse, hasClaudeSession: true } }
+            { $set: { claudeSessionId: sessionIdToUse, hasClaudeSession: true, claudeSessionStartedAt: new Date() } }
           );
         }
 
